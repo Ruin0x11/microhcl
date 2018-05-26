@@ -41,3 +41,4 @@ function(add_hcl_test target)
 endfunction()
 
 add_hcl_test(lexer)
+add_hcl_test(parser)

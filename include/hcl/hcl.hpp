@@ -18,7 +18,7 @@
 namespace hcl {
 
 class Value;
-typedef std::vector<Value> Array;
+typedef std::vector<Value> List;
 
 #ifdef MICROHCP_USE_MAP
 typedef std::map<std::string, Value> Object;
@@ -41,7 +41,7 @@ template<> struct call_traits<int> : public internal::call_traits_value<int> {};
 template<> struct call_traits<int64_t> : public internal::call_traits_value<int64_t> {};
 template<> struct call_traits<double> : public internal::call_traits_value<double> {};
 template<> struct call_traits<std::string> : public internal::call_traits_ref<std::string> {};
-template<> struct call_traits<Array> : public internal::call_traits_ref<Array> {};
+template<> struct call_traits<List> : public internal::call_traits_ref<List> {};
 template<> struct call_traits<Object> : public internal::call_traits_ref<Object> {};
 
 // A value is returned for std::vector<T>. Not reference.
@@ -56,7 +56,7 @@ public:
         INT_TYPE,
         DOUBLE_TYPE,
         STRING_TYPE,
-        ARRAY_TYPE,
+        LIST_TYPE,
         OBJECT_TYPE,
     };
 
@@ -67,10 +67,10 @@ public:
     Value(double v) : type_(DOUBLE_TYPE), double_(v) {}
     Value(const std::string& v) : type_(STRING_TYPE), string_(new std::string(v)) {}
     Value(const char* v) : type_(STRING_TYPE), string_(new std::string(v)) {}
-    Value(const Array& v) : type_(ARRAY_TYPE), array_(new Array(v)) {}
+    Value(const List& v) : type_(LIST_TYPE), list_(new List(v)) {}
     Value(const Object& v) : type_(OBJECT_TYPE), object_(new Object(v)) {}
     Value(std::string&& v) : type_(STRING_TYPE), string_(new std::string(std::move(v))) {}
-    Value(Array&& v) : type_(ARRAY_TYPE), array_(new Array(std::move(v))) {}
+    Value(List&& v) : type_(LIST_TYPE), list_(new List(std::move(v))) {}
     Value(Object&& v) : type_(OBJECT_TYPE), object_(new Object(std::move(v))) {}
 
     Value(const Value& v);
@@ -88,7 +88,7 @@ public:
 
     // Retruns Value size.
     // 0 for invalid value.
-    // The number of inner elements for array or object.
+    // The number of inner elements for list or object.
     // 1 for other types.
     size_t size() const;
     bool empty() const;
@@ -136,7 +136,7 @@ public:
     bool eraseChild(const std::string& key);
 
     // ----------------------------------------------------------------------
-    // For Array value
+    // For List value
 
     template<typename T> typename call_traits<T>::return_type get(size_t index) const;
     const Value* find(size_t index) const;
@@ -159,7 +159,7 @@ private:
         int64_t int_;
         double double_;
         std::string* string_;
-        Array* array_;
+        List* list_;
         Object* object_;
     };
 
@@ -190,7 +190,6 @@ enum class TokenType {
     ILLEGAL,
     END_OF_FILE,
     COMMENT,
-
 
     IDENT, // literals
 
@@ -240,7 +239,8 @@ public:
 
     Token nextToken();
     Token peekToken() {
-        peek_ = nextToken();
+        if (peek_.type() == TokenType::ILLEGAL)
+            peek_ = nextToken();
         return peek_;
     }
 
@@ -250,10 +250,11 @@ public:
     // Returns true if success. Returns false if intermediate state is left.
     bool skipUTF8BOM();
 
+    bool consume(char c);
+
 private:
     bool current(char* c);
     void next();
-    bool consume(char c);
 
     Token nextValueToken();
     Token nextNumber(bool leadingDot, bool leadingSub);
@@ -288,6 +289,7 @@ public:
 private:
     const Token& token() const { return token_; }
     void nextToken() { token_ = lexer_.nextToken(); }
+    bool consume(char c) { return lexer_.consume(c); }
 
     void skipForKey();
     void skipForValue();
@@ -304,7 +306,7 @@ private:
     bool parseListType(Value&);
     bool parseLiteralType(Value&);
 
-    Token peekToken() { return lexer_.peekToken(); };
+    Token peekToken() { std::cout << "PEEK" << std::endl; return lexer_.peekToken(); };
 
     void addError(const std::string& reason);
 
@@ -772,6 +774,10 @@ inline Token Lexer::nextHereDoc()
             }
         }
         if(current(&c) && c == '\n') {
+            if (buffer.size() != 0) {
+                buffer += '\n';
+            }
+            buffer += line;
             line.clear();
         }
         else {
@@ -780,7 +786,6 @@ inline Token Lexer::nextHereDoc()
         if(line.compare(s) == 0) {
             break;
         }
-        buffer += c;
     }
 
     if(current(&c)) {
@@ -801,15 +806,20 @@ inline Token Lexer::nextValueToken()
         s += c;
         next();
 
-        while (current(&c) && (isalpha(c) || c == '_' || c == '.')) {
+        while (current(&c) && (isalpha(c) || isdigit(c) || c == '_' || c == '.')) {
             s += c;
             next();
         }
 
-        if (s == "true")
+        if (s == "true") {
+            std::cout << "TOKEN: BOOL " << true << std::endl;
             return Token(TokenType::BOOL, true);
-        if (s == "false")
+        }
+        if (s == "false") {
+            std::cout << "TOKEN: BOOL " << false << std::endl;
             return Token(TokenType::BOOL, false);
+        }
+        std::cout << "TOKEN: IDENT " << s << std::endl;
         return Token(TokenType::IDENT, s);
     }
 
@@ -839,6 +849,7 @@ inline Token Lexer::nextNumber(bool leadingDot, bool leadingSub)
         std::stringstream ss(removeDelimiter(s));
         std::int64_t x;
         ss >> x;
+        std::cout << "TOKEN: INT " << x << std::endl;
         return Token(TokenType::NUMBER, x);
     }
 
@@ -846,6 +857,7 @@ inline Token Lexer::nextNumber(bool leadingDot, bool leadingSub)
         std::stringstream ss(removeDelimiter(s));
         double d;
         ss >> d;
+        std::cout << "TOKEN: DOUBLE " << d << std::endl;
         return Token(TokenType::FLOAT, d);
     }
 
@@ -862,7 +874,7 @@ inline Token Lexer::nextToken()
 {
     if (peek_.type() != TokenType::ILLEGAL) {
         Token tok = peek_;
-        peek_ = Token(TokenType::ILLEGAL);
+        peek_ = Token(TokenType::ILLEGAL, "illegal");
         return tok;
     }
 
@@ -881,47 +893,69 @@ inline Token Lexer::nextToken()
         switch (c) {
         case '=':
             next();
-            return Token(TokenType::ASSIGN);
+            std::cout << "TOKEN: =" << std::endl;
+            return Token(TokenType::ASSIGN, "=");
         case '+':
             next();
-            return Token(TokenType::ADD);
+            std::cout << "TOKEN: +" << std::endl;
+            return Token(TokenType::ADD, "+");
         case '-':
             next();
             if (current(&c) && isdigit(c)) {
+                std::cout << "TOKEN: NUMBER" << std::endl;
                 return nextNumber(false, true);
             }
             else {
-                return Token(TokenType::SUB);
+                std::cout << "TOKEN: -" << std::endl;
+                return Token(TokenType::SUB, "-");
             }
         case '{':
             next();
-            return Token(TokenType::LBRACE);
+                std::cout << "TOKEN: {" << std::endl;
+            return Token(TokenType::LBRACE, "{");
         case '}':
             next();
-            return Token(TokenType::RBRACE);
+                std::cout << "TOKEN: }" << std::endl;
+            return Token(TokenType::RBRACE, "}");
         case '[':
             next();
-            return Token(TokenType::LBRACK);
+                std::cout << "TOKEN: [" << std::endl;
+            return Token(TokenType::LBRACK, "[");
         case ']':
             next();
-            return Token(TokenType::RBRACK);
+                std::cout << "TOKEN: ]" << std::endl;
+            return Token(TokenType::RBRACK, "]");
         case ',':
             next();
-            return Token(TokenType::COMMA);
+                std::cout << "TOKEN: ," << std::endl;
+            return Token(TokenType::COMMA, ",");
         case '.':
             next();
             if(current(&c) && isdigit(c)) {
+                std::cout << "TOKEN: DECNUMBER" << std::endl;
                 return nextNumber(true, false);
             }
             else {
-                return Token(TokenType::PERIOD);
+                std::cout << "TOKEN: ." << std::endl;
+                return Token(TokenType::PERIOD, ".");
             }
         case '\"':
+            std::cout << "TOKEN: STRING DQ" << std::endl;
             return nextStringDoubleQuote();
         case '\'':
+            std::cout << "TOKEN: STRING SQ" << std::endl;
             return nextStringSingleQuote();
         case '<':
+            std::cout << "TOKEN: HEREDOC" << std::endl;
             return nextHereDoc();
+        case '/':
+            next();
+            if(current(&c) && c == '/') {
+                std::cout << "TOKEN: COMMENT" << std::endl;
+                skipUntilNewLine();
+                continue;
+            }
+            return Token(TokenType::ILLEGAL, "unterminated comment");
         default:
             return nextValueToken();
         }
@@ -941,7 +975,7 @@ inline const char* Value::typeToString(Value::Type type)
     case INT_TYPE:    return "int";
     case DOUBLE_TYPE: return "double";
     case STRING_TYPE: return "string";
-    case ARRAY_TYPE:  return "array";
+    case LIST_TYPE:  return "list";
     case OBJECT_TYPE:  return "object";
     default:          return "unknown";
     }
@@ -956,7 +990,7 @@ inline Value::Value(const Value& v) :
     case INT_TYPE: int_ = v.int_; break;
     case DOUBLE_TYPE: double_ = v.double_; break;
     case STRING_TYPE: string_ = new std::string(*v.string_); break;
-    case ARRAY_TYPE: array_ = new Array(*v.array_); break;
+    case LIST_TYPE: list_ = new List(*v.list_); break;
     case OBJECT_TYPE: object_ = new Object(*v.object_); break;
     default:
         assert(false);
@@ -974,7 +1008,7 @@ inline Value::Value(Value&& v) noexcept :
     case INT_TYPE: int_ = v.int_; break;
     case DOUBLE_TYPE: double_ = v.double_; break;
     case STRING_TYPE: string_ = v.string_; break;
-    case ARRAY_TYPE: array_ = v.array_; break;
+    case LIST_TYPE: list_ = v.list_; break;
     case OBJECT_TYPE: object_ = v.object_; break;
     default:
         assert(false);
@@ -1000,7 +1034,7 @@ inline Value& Value::operator=(const Value& v)
     case INT_TYPE: int_ = v.int_; break;
     case DOUBLE_TYPE: double_ = v.double_; break;
     case STRING_TYPE: string_ = new std::string(*v.string_); break;
-    case ARRAY_TYPE: array_ = new Array(*v.array_); break;
+    case LIST_TYPE: list_ = new List(*v.list_); break;
     case OBJECT_TYPE: object_ = new Object(*v.object_); break;
     default:
         assert(false);
@@ -1025,7 +1059,7 @@ inline Value& Value::operator=(Value&& v) noexcept
     case INT_TYPE: int_ = v.int_; break;
     case DOUBLE_TYPE: double_ = v.double_; break;
     case STRING_TYPE: string_ = v.string_; break;
-    case ARRAY_TYPE: array_ = v.array_; break;
+    case LIST_TYPE: list_ = v.list_; break;
     case OBJECT_TYPE: object_ = v.object_; break;
     default:
         assert(false);
@@ -1044,8 +1078,8 @@ inline Value::~Value()
     case STRING_TYPE:
         delete string_;
         break;
-    case ARRAY_TYPE:
-        delete array_;
+    case LIST_TYPE:
+        delete list_;
         break;
     case OBJECT_TYPE:
         delete object_;
@@ -1060,8 +1094,8 @@ inline size_t Value::size() const
     switch (type_) {
     case NULL_TYPE:
         return 0;
-    case ARRAY_TYPE:
-        return array_->size();
+    case LIST_TYPE:
+        return list_->size();
     case OBJECT_TYPE:
         return object_->size();
     default:
@@ -1100,10 +1134,10 @@ template<> struct Value::ValueConverter<std::string>
     bool is(const Value& v) { return v.type() == Value::STRING_TYPE; }
     const std::string& to(const Value& v) { v.assureType<std::string>(); return *v.string_; }
 };
-template<> struct Value::ValueConverter<Array>
+template<> struct Value::ValueConverter<List>
 {
-    bool is(const Value& v) { return v.type() == Value::ARRAY_TYPE; }
-    const Array& to(const Value& v) { v.assureType<Array>(); return *v.array_; }
+    bool is(const Value& v) { return v.type() == Value::LIST_TYPE; }
+    const List& to(const Value& v) { v.assureType<List>(); return *v.list_; }
 };
 template<> struct Value::ValueConverter<Object>
 {
@@ -1116,23 +1150,23 @@ struct Value::ValueConverter<std::vector<T>>
 {
     bool is(const Value& v)
     {
-        if (v.type() != Value::ARRAY_TYPE)
+        if (v.type() != Value::LIST_TYPE)
             return false;
-        const Array& array = v.as<Array>();
-        if (array.empty())
+        const List& list = v.as<List>();
+        if (list.empty())
             return true;
-        return array.front().is<T>();
+        return list.front().is<T>();
     }
 
     std::vector<T> to(const Value& v)
     {
-        const Array& array = v.as<Array>();
-        if (array.empty())
+        const List& list = v.as<List>();
+        if (list.empty())
             return std::vector<T>();
-        array.front().assureType<T>();
+        list.front().assureType<T>();
 
         std::vector<T> result;
-        for (const auto& element : array) {
+        for (const auto& element : list) {
             result.push_back(element.as<T>());
         }
 
@@ -1147,7 +1181,7 @@ template<> inline const char* type_name<int>() { return "int"; }
 template<> inline const char* type_name<int64_t>() { return "int64_t"; }
 template<> inline const char* type_name<double>() { return "double"; }
 template<> inline const char* type_name<std::string>() { return "string"; }
-template<> inline const char* type_name<hcl::Array>() { return "array"; }
+template<> inline const char* type_name<hcl::List>() { return "list"; }
 template<> inline const char* type_name<hcl::Object>() { return "object"; }
 } // namespace internal
 
@@ -1202,8 +1236,8 @@ inline bool operator==(const Value& lhs, const Value& rhs)
         return lhs.double_ == rhs.double_;
     case Value::Type::STRING_TYPE:
         return *lhs.string_ == *rhs.string_;
-    case Value::Type::ARRAY_TYPE:
-        return *lhs.array_ == *rhs.array_;
+    case Value::Type::LIST_TYPE:
+        return *lhs.list_ == *rhs.list_;
     case Value::Type::OBJECT_TYPE:
         return *lhs.object_ == *rhs.object_;
     default:
@@ -1362,21 +1396,21 @@ inline Value& Value::operator[](const std::string& key)
 template<typename T>
 inline typename call_traits<T>::return_type Value::get(size_t index) const
 {
-    if (!is<Array>())
-        failwith("type must be array to do get(index).");
+    if (!is<List>())
+        failwith("type must be list to do get(index).");
 
-    if (array_->size() <= index)
+    if (list_->size() <= index)
         failwith("index out of bound");
 
-    return (*array_)[index].as<T>();
+    return (*list_)[index].as<T>();
 }
 
 inline const Value* Value::find(size_t index) const
 {
-    if (!is<Array>())
+    if (!is<List>())
         return nullptr;
-    if (index < array_->size())
-        return &(*array_)[index];
+    if (index < list_->size())
+        return &(*list_)[index];
     return nullptr;
 }
 
@@ -1388,23 +1422,23 @@ inline Value* Value::find(size_t index)
 inline Value* Value::push(const Value& v)
 {
     if (!valid())
-        *this = Value((Array()));
-    else if (!is<Array>())
-        failwith("type must be array to do push(Value).");
+        *this = Value((List()));
+    else if (!is<List>())
+        failwith("type must be list to do push(Value).");
 
-    array_->push_back(v);
-    return &array_->back();
+    list_->push_back(v);
+    return &list_->back();
 }
 
 inline Value* Value::push(Value&& v)
 {
     if (!valid())
-        *this = Value((Array()));
-    else if (!is<Array>())
-        failwith("type must be array to do push(Value).");
+        *this = Value((List()));
+    else if (!is<List>())
+        failwith("type must be list to do push(Value).");
 
-    array_->push_back(std::move(v));
-    return &array_->back();
+    list_->push_back(std::move(v));
+    return &list_->back();
 }
 
 inline Value* Value::ensureValue(const std::string& key)
@@ -1475,12 +1509,9 @@ namespace internal {
 
 inline void Parser::addError(const std::string& reason)
 {
-    if (!errorReason_.empty())
-        return;
-
     std::stringstream ss;
-    ss << "Error: line " << lexer_.lineNo() << ": " << reason;
-    errorReason_ = ss.str();
+    ss << "Error: line " << lexer_.lineNo() << ": " << reason << "\n";
+    errorReason_ += ss.str();
 }
 
 inline const std::string& Parser::errorReason()
@@ -1490,52 +1521,89 @@ inline const std::string& Parser::errorReason()
 
 inline Value Parser::parse()
 {
+    std::cout << "\n==== PARSE BEGIN ====" << std::endl;
     return parseObjectList(false);
 }
 
 inline Value Parser::parseObjectList(bool isNested)
 {
+    std::cout << "ParseObjectList" << std::endl;
     Value node((Object()));
 
     while (true) {
-        if (peekToken().type() == TokenType::END_OF_FILE) {
+        std::cout << "= NEXT =" << std::endl;
+        if (token().type() == TokenType::END_OF_FILE) {
             break;
         }
         if (isNested) {
             // We're inside a nested object list, so end at an RBRACE.
-            if (peekToken().type() == TokenType::RBRACE) {
+            if (token().type() == TokenType::RBRACE) {
+                std::cout << "RBRACE END" << std::endl;
                 break;
             }
         }
 
         std::vector<std::string> keys;
         if (!parseKeys(keys)) {
+            // Make the node invalid
+            node = Value();
             break;
         }
+
+        std::cout << "Keys: ";
+        for (const auto& i: keys)
+            std::cout << "\"" << i << "\" ";
+        std::cout << std::endl;
 
         Value v;
         if (!parseObjectItem(v)) {
-            addError("parse object item failure");
+            // Make the node invalid
+            node = Value();
             break;
         }
 
-        Value* parent = &node;
-        Value* array = nullptr;
-        for (const auto& key : keys) {
-            array = parent->find(key);
-            if(array && !array->is<Array>()) {
-                addError("tried setting nested object that wasn't an array");
-                array = nullptr;
-                break;
+        std::cout << "Value: type " << v.type() << std::endl;
+
+        nextToken();
+
+        // object lists can be optionally comma-delimited e.g. when a list of maps
+        // is being expressed, so a comma is allowed here - it's simply consumed
+        if(token().type() == TokenType::COMMA)
+            nextToken();
+
+        Value* object = &node;
+        if(keys.size() > 1) {
+            Value* parent = &node;
+            std::vector<std::string> allButLast(keys.begin(), keys.end()-1);
+            for (const auto& key : allButLast) {
+                std::cout << "now on " << key << std::endl;
+                object = parent->find(key);
+                if(object && !object->is<Object>()) {
+                    addError("tried setting nested object that wasn't an object");
+                    // Make the node invalid
+                    node = Value();
+                    object = nullptr;
+                    break;
+                }
+                if(!object) {
+                    std::cout << "===== assign new on " << key << std::endl;
+                    object = parent->setChild(key, Object());
+                    assert(object);
+                }
+                parent = object;
             }
-            if(!array) {
-                parent->setChild(key, Array());
-            }
-            parent = array;
         }
 
-        if (array) {
-            array->setChild(keys.back(), std::move(v));
+        if (object) {
+            std::cout << "final on " << keys.back() << std::endl;
+            if (v.is<Object>()) {
+                if (v.size() == 0)
+                    object->setChild(keys.back(), std::move(v));
+                else
+                    object->merge(v);
+            } else {
+                object->setChild(keys.back(), std::move(v));
+            }
         } else {
             addError("no keys were found");
             break;
@@ -1547,43 +1615,51 @@ inline Value Parser::parseObjectList(bool isNested)
 
 inline bool Parser::parseKeys(std::vector<std::string>& keys)
 {
+    std::cout << "ParseKeys" << std::endl;
+
     int keyCount = 0;
     keys.clear();
 
     while (true) {
-        nextToken();
-
+        std::cout << "Tok: " << static_cast<int>(token().type()) << " \"" << token().strValue() << "\"" << std::endl;
         switch (token().type()) {
         case TokenType::END_OF_FILE:
             addError("end of file reached");
+            std::cout << "KEYS EOF" << std::endl;
             return false;
         case TokenType::ASSIGN:
+            std::cout << "KEYS ASSIGN" << std::endl;
             if (keyCount > 1) {
                 addError("nested object expected: LBRACE got: " + token().strValue());
                 return false;
             }
             if (keyCount == 0) {
-                addError("no object keys found");
+                addError("expected to find at least one object key");
                 return false;
             }
 
             return true;
         case TokenType::LBRACE:
+            std::cout << "KEYS LBRACE" << std::endl;
             if (keys.size() == 0) {
-                addError("expected IDENT | STRING got: " + token().strValue());
+                addError("expected IDENT | STRING got: LBRACE");
                 return false;
             }
 
             return true;
         case TokenType::IDENT:
         case TokenType::STRING:
+            std::cout << "KEYS STRING " << token().strValue() << std::endl;
             keyCount++;
             keys.push_back(token().strValue());
+            nextToken();
             break;
         case TokenType::ILLEGAL:
+            std::cout << "KEYS ILLEGAL " << token().strValue() << std::endl;
             addError("illegal character");
             return false;
         default:
+            std::cout << "KEYS ERROR " << token().strValue() << std::endl;
             addError("expected IDENT | STRING | ASSIGN | LBRACE got: " + token().strValue());
             return false;
         }
@@ -1594,6 +1670,7 @@ inline bool Parser::parseKeys(std::vector<std::string>& keys)
 
 inline bool Parser::parseObjectItem(Value& currentValue)
 {
+    std::cout << "ParseObjectItem" << std::endl;
     switch (token().type()) {
     case TokenType::ASSIGN:
         if (!parseObject(currentValue))
@@ -1612,6 +1689,7 @@ inline bool Parser::parseObjectItem(Value& currentValue)
 
 inline bool Parser::parseObject(Value& currentValue)
 {
+    std::cout << "ParseObject" << std::endl;
     nextToken();
 
     switch (token().type()) {
@@ -1620,6 +1698,7 @@ inline bool Parser::parseObject(Value& currentValue)
     case TokenType::BOOL:
     case TokenType::STRING:
     case TokenType::HEREDOC:
+    case TokenType::IDENT:
         return parseLiteralType(currentValue);
     case TokenType::LBRACE:
         return parseObjectType(currentValue);
@@ -1634,19 +1713,24 @@ inline bool Parser::parseObject(Value& currentValue)
         addError("Unknown token");
         return false;
     }
-
+    addError("Unknown token");
+    return false;
 }
 
 inline bool Parser::parseObjectType(Value& currentValue)
 {
+    std::cout << "ParseObjectType" << std::endl;
+    if(token().type() != TokenType::LBRACE) {
+        addError("object list did not start with LBRACE");
+        return false;
+    }
+    nextToken();
     Value result = parseObjectList(true);
 
     if(!errorReason().empty() && token().type() != TokenType::RBRACE) {
         addError("failed parsing object list");
         return false;
     }
-
-    nextToken();
 
     if(token().type() != TokenType::RBRACE) {
         addError("object expected closing RBRACE got: " + token().strValue());
@@ -1659,7 +1743,8 @@ inline bool Parser::parseObjectType(Value& currentValue)
 
 inline bool Parser::parseListType(Value& currentValue)
 {
-    Array a;
+    std::cout << "ParseListType" << std::endl;
+    List a;
     bool needComma = false;
 
     while (true) {
@@ -1682,6 +1767,7 @@ inline bool Parser::parseListType(Value& currentValue)
         case TokenType::FLOAT:
         case TokenType::STRING:
         case TokenType::HEREDOC:
+        case TokenType::IDENT:
         {
             Value literal;
             if (!parseLiteralType(literal)) {
@@ -1732,21 +1818,28 @@ inline bool Parser::parseListType(Value& currentValue)
 
 bool Parser::parseLiteralType(Value& currentValue)
 {
+    std::cout << "ParseLiteralType" << std::endl;
     switch (token().type()) {
     case TokenType::STRING:
     case TokenType::HEREDOC:
+    case TokenType::IDENT:
+        std::cout << "Lit: " << token().strValue() << std::endl;
         currentValue = token().strValue();
         return true;
     case TokenType::BOOL:
+        std::cout << "Lit: " << token().boolValue() << std::endl;
         currentValue = token().boolValue();
         return true;
     case TokenType::NUMBER:
+        std::cout << "Lit: " << token().intValue() << std::endl;
         currentValue = token().intValue();
         return true;
     case TokenType::FLOAT:
+        std::cout << "Lit: " << token().doubleValue() << std::endl;
         currentValue = token().doubleValue();
         return true;
     case TokenType::ILLEGAL:
+        std::cout << "IllegalLit: " << token().strValue() << std::endl;
         addError(token().strValue());
         return false;
     default:

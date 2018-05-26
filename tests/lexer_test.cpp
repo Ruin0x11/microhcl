@@ -427,3 +427,45 @@ EOF
         i++;
     }
 }
+
+TEST_CASE("test errors")
+{
+    static std::vector<std::string> invalid = {
+	"\x80"
+	"\xff"
+	"\uE123"
+
+	"ab\x80"
+	"abc\xff"
+	"ab\x00"
+	"ab\x00\n"
+
+        "\"ab\x80"
+        "\"abc\xff"
+
+	"01238"
+	"01238123"
+	"0x"
+	"0xg"
+	"'aa'"
+
+        "\""
+        "\"abc"
+        "\"abc\n"
+        "\"${abc\n"
+        "/*/"
+        "/foo"
+
+	"<<\nfoo\n\n"
+	"<<-\nfoo\n\n"
+    };
+
+    for (auto& s : invalid) {
+        std::stringstream ss(s);
+        Lexer lexer(ss);
+
+        Token t = lexer.nextToken();
+
+        REQUIRE(t.type() == TokenType::ILLEGAL);
+    }
+}
