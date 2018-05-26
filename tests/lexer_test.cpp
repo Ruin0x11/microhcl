@@ -263,6 +263,54 @@ TEST_CASE("test float")
     testTokenList("float");
 }
 
+std::string replaceString(std::string subject, const std::string& search,
+                          const std::string& replace) {
+    size_t pos = 0;
+    while ((pos = subject.find(search, pos)) != std::string::npos) {
+         subject.replace(pos, search.length(), replace);
+         pos += replace.length();
+    }
+    return subject;
+}
+
+TEST_CASE("test windows line endings")
+{
+    std::string hcl(R"(# This should have Windows line endings
+resource "aws_instance" "foo" {
+    user_data=<<HEREDOC
+    test script
+HEREDOC
+})");
+
+    std::string hclCrlf = replaceString(hcl, "\n", "\r\n");
+
+    std::stringstream ss(hclCrlf);
+
+    static std::vector<TokenPair> literals = {
+        //{TokenType::COMMENT, "// This should have Windows line endings\r"},
+		{TokenType::IDENT, R"(resource)"},
+		{TokenType::STRING, R"("aws_instance")"},
+		{TokenType::STRING, R"("foo")"},
+		{TokenType::LBRACE, R"({)"},
+		{TokenType::IDENT, R"(user_data)"},
+		{TokenType::ASSIGN, R"(=)"},
+		{TokenType::HEREDOC, "<<HEREDOC\r\n    test script\r\nHEREDOC\r\n"},
+		{TokenType::RBRACE, R"(})"},
+		{TokenType::END_OF_FILE, R"()"},
+    };
+
+    Lexer lexer(ss);
+
+    int i = 0;
+    for(const auto& tokenPair : literals)
+    {
+        Token t = lexer.nextToken();
+
+        REQUIRE(t.type() == tokenPair.tok);
+        i++;
+    }
+}
+
 TEST_CASE("test real world example")
 {
     std::stringstream ss(R"(# This comes from Terraform, as a test
@@ -302,7 +350,6 @@ EOF
 			EOF
 		}
 	})");
-    Lexer lexer(ss);
     static std::vector<TokenPair> literals = {
         //{TokenType::COMMENT, )"// This comes from Terraform, as a test)"},
 		{TokenType::IDENT, R"(variable)"},
@@ -369,10 +416,11 @@ EOF
 		{TokenType::END_OF_FILE, R"()"},
     };
 
+    Lexer lexer(ss);
+
     int i = 0;
     for(const auto& tokenPair : literals)
     {
-        std::cout << i << ": \"" << tokenPair.text << "\" " << static_cast<int>(tokenPair.tok) << std::endl;
         Token t = lexer.nextToken();
 
         REQUIRE(t.type() == tokenPair.tok);

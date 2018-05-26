@@ -615,20 +615,16 @@ inline Token Lexer::nextStringDoubleQuote()
     while (current(&c)) {
         next();
         if (braces == 0 && dollar && c == '{') {
-            std::cout << braces << " brace" << std::endl;
             braces++;
         } else if (braces > 0 && c == '{') {
-            std::cout << braces << " nested brace " << std::endl;
             braces++;
         }
         if (braces > 0 && c == '}') {
-            std::cout << braces << " end brace " << std::endl;
             braces--;
         }
         dollar = false;
         if (braces == 0 && c == '$') {
             dollar = true;
-            std::cout << "dollar" << std::endl;
         }
         if (c == '\\') {
             if (!current(&c))
@@ -876,7 +872,6 @@ inline Token Lexer::nextToken()
             next();
             continue;
         }
-        std::cout << c << std::endl;
 
         if (c == '#') {
             skipUntilNewLine();
