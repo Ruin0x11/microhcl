@@ -256,6 +256,7 @@ private:
     bool consume(char c);
 
     Token nextValueToken();
+    Token nextNumber(bool leadingDot, bool leadingSub);
 
     void skipUntilNewLine();
 
@@ -694,7 +695,8 @@ inline Token Lexer::nextHereDoc()
     std::string s;
     char c;
 
-    next();
+    current(&c);
+
     // Indented heredoc syntax
     if(c == '-') {
         next();
@@ -729,6 +731,9 @@ inline Token Lexer::nextHereDoc()
         if(current(&c) && c == '\n') {
             line.clear();
         }
+        else {
+            line += c;
+        }
         if(line.compare(s) == 0) {
             break;
         }
@@ -762,6 +767,22 @@ inline Token Lexer::nextValueToken()
         return Token(TokenType::IDENT, s);
     }
 
+    return nextNumber(false, false);
+}
+
+inline Token Lexer::nextNumber(bool leadingDot, bool leadingSub)
+{
+    std::string s;
+    char c;
+
+    if (leadingDot) {
+        s += '.';
+    }
+
+    if (leadingSub) {
+        s += '-';
+    }
+
     while (current(&c) && (('0' <= c && c <= '9') || c == '.' || c == 'e' || c == 'E' ||
                            c == 'T' || c == 'Z' || c == '_' || c == ':' || c == '-' || c == '+')) {
         next();
@@ -784,6 +805,7 @@ inline Token Lexer::nextValueToken()
 
     return Token(TokenType::ILLEGAL, std::string("Invalid token"));
 }
+
 
 inline bool isWhitespace(char c)
 {
@@ -819,6 +841,12 @@ inline Token Lexer::nextToken()
             return Token(TokenType::ADD);
         case '-':
             next();
+            if(current(&c) && isdigit(c)) {
+                return nextNumber(false, true);
+            }
+            else {
+                return Token(TokenType::PERIOD);
+            }
             return Token(TokenType::SUB);
         case '{':
             next();
@@ -837,7 +865,12 @@ inline Token Lexer::nextToken()
             return Token(TokenType::COMMA);
         case '.':
             next();
-            return Token(TokenType::PERIOD);
+            if(current(&c) && isdigit(c)) {
+                return nextNumber(true, false);
+            }
+            else {
+                return Token(TokenType::PERIOD);
+            }
         case '\"':
             return nextStringDoubleQuote();
         case '\'':
