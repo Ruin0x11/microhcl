@@ -62,6 +62,7 @@ std::map<std::string, std::vector<TokenPair>> tokenPairs = {
 		{TokenType::STRING, R"("本")"},
 		{TokenType::STRING, R"("${file("foo")}")"},
 		{TokenType::STRING, R"("${file(\"foo\")}")"},
+		{TokenType::STRING, R"("${file(\"{foo}\")}")"},
 		//{TokenType::STRING, R"("\a")"},
 		//{TokenType::STRING, R"("\b")"},
 		//{TokenType::STRING, R"("\f")"},

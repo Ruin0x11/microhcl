@@ -600,6 +600,8 @@ inline Token Lexer::nextStringDoubleQuote()
 
     std::string s;
     char c;
+    int braces = 0;
+    bool dollar = false;
 
     if (current(&c) && c == '"') {
         next();
@@ -612,6 +614,22 @@ inline Token Lexer::nextStringDoubleQuote()
 
     while (current(&c)) {
         next();
+        if (braces == 0 && dollar && c == '{') {
+            std::cout << braces << " brace" << std::endl;
+            braces++;
+        } else if (braces > 0 && c == '{') {
+            std::cout << braces << " nested brace " << std::endl;
+            braces++;
+        }
+        if (braces > 0 && c == '}') {
+            std::cout << braces << " end brace " << std::endl;
+            braces--;
+        }
+        dollar = false;
+        if (braces == 0 && c == '$') {
+            dollar = true;
+            std::cout << "dollar" << std::endl;
+        }
         if (c == '\\') {
             if (!current(&c))
                 return Token(TokenType::ILLEGAL, std::string("string has unknown escape sequence"));
@@ -647,14 +665,18 @@ inline Token Lexer::nextStringDoubleQuote()
             case '\'': c = '\''; break;
             case '\\': c = '\\'; break;
             case '\n':
-                while (current(&c) && (c == ' ' || c == '\t' || c == '\r' || c == '\n')) {
-                    next();
+                if (braces == 0) {
+                    return Token(TokenType::ILLEGAL, std::string("literal not terminated"));
+                } else {
+                    while (current(&c) && (c == ' ' || c == '\t' || c == '\r' || c == '\n')) {
+                        next();
+                    }
                 }
                 continue;
             default:
                 return Token(TokenType::ILLEGAL, std::string("string has unknown escape sequence"));
             }
-        } else if (c == '"') {
+        } else if (c == '"' && braces == 0) {
             return Token(TokenType::STRING, s);
         }
 
@@ -702,11 +724,13 @@ inline Token Lexer::nextHereDoc()
 
     std::string s;
     char c;
+    bool indent = false;
 
     current(&c);
 
     // Indented heredoc syntax
     if(c == '-') {
+        indent = true;
         next();
     }
 
@@ -733,9 +757,24 @@ inline Token Lexer::nextHereDoc()
 
     std::string buffer;
     std::string line;
+    int indentLevel = -1;
 
     while(current(&c)) {
         next();
+        if (indent && indentLevel == -1) {
+            indentLevel = 0;
+            current(&c);
+            while(current(&c) && c == '\t') {
+                indentLevel++;
+                next();
+            }
+        } else if (line.size() == 0) {
+            int remain = indentLevel;
+            while(current(&c) && (c == '\t' && remain > 0)) {
+                remain--;
+                next();
+            }
+        }
         if(current(&c) && c == '\n') {
             line.clear();
         }
@@ -748,10 +787,13 @@ inline Token Lexer::nextHereDoc()
         buffer += c;
     }
 
-    if(current(&c))
+    if(current(&c)) {
+        next();
         return Token(TokenType::HEREDOC, buffer);
-    else
+    }
+    else {
         return Token(TokenType::ILLEGAL, std::string("heredoc not terminated"));
+    }
 }
 
 inline Token Lexer::nextValueToken()
@@ -834,6 +876,7 @@ inline Token Lexer::nextToken()
             next();
             continue;
         }
+        std::cout << c << std::endl;
 
         if (c == '#') {
             skipUntilNewLine();
@@ -1592,10 +1635,11 @@ inline bool Parser::parseObject(Value& currentValue)
     case TokenType::END_OF_FILE:
         addError("Reached end of file");
         return false;
+    default:
+        addError("Unknown token");
+        return false;
     }
 
-    addError("Unknown token");
-    return false;
 }
 
 inline bool Parser::parseObjectType(Value& currentValue)
