@@ -620,9 +620,17 @@ inline Token Lexer::nextStringDoubleQuote()
             case 't': c = '\t'; break;
             case 'n': c = '\n'; break;
             case 'r': c = '\r'; break;
+            case 'x':
             case 'u':
             case 'U': {
-                int size = c == 'u' ? 4 : 8;
+                int size = 0;
+                if (c == 'x') {
+                    size = 2;
+                } else if (c == 'u') {
+                    size = 4;
+                } else if (c == 'U') {
+                    size = 8;
+                }
                 std::string codepoint;
                 for (int i = 0; i < size; ++i) {
                   if (current(&c) && (('0' <= c && c <= '9') || ('A' <= c && c <= 'F') || ('a' <= c && c <= 'f'))) {
@@ -841,13 +849,12 @@ inline Token Lexer::nextToken()
             return Token(TokenType::ADD);
         case '-':
             next();
-            if(current(&c) && isdigit(c)) {
+            if (current(&c) && isdigit(c)) {
                 return nextNumber(false, true);
             }
             else {
-                return Token(TokenType::PERIOD);
+                return Token(TokenType::SUB);
             }
-            return Token(TokenType::SUB);
         case '{':
             next();
             return Token(TokenType::LBRACE);
