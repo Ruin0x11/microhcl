@@ -746,11 +746,11 @@ inline Token Lexer::nextValueToken()
     std::string s;
     char c;
 
-    if (current(&c) && isalpha(c)) {
+    if (current(&c) && (isalpha(c) || c == '_')) {
         s += c;
         next();
 
-        while (current(&c) && isalpha(c) || c == '_' || c == '.') {
+        while (current(&c) && (isalpha(c) || c == '_' || c == '.')) {
             s += c;
             next();
         }
@@ -814,6 +814,12 @@ inline Token Lexer::nextToken()
         case '=':
             next();
             return Token(TokenType::ASSIGN);
+        case '+':
+            next();
+            return Token(TokenType::ADD);
+        case '-':
+            next();
+            return Token(TokenType::SUB);
         case '{':
             next();
             return Token(TokenType::LBRACE);
