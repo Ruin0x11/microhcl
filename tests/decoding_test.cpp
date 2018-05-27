@@ -80,7 +80,7 @@ std::map<std::string, hcl::Value> cases = {
          })},
     {"multiline_literal_with_hil.hcl",
      hcl::Value(hcl::Object{
-             {"multiline_literal_with_hil", "${hello\n world}"}
+             {"multiline_literal_with_hil", "${hello\n  world}"}
          })},
     {"multiline.hcl",
      hcl::Value(hcl::Object{
@@ -118,11 +118,11 @@ std::map<std::string, hcl::Value> cases = {
     {"structure_multi.hcl",
      hcl::Value(hcl::Object{
              {"foo", hcl::Object{
-                     {"baz", hcl::Object{
-                             {"key", 7}
-                         }},
                      {"bar", hcl::Object{
                              {"key", 12}
+                         }},
+                     {"baz", hcl::Object{
+                             {"key", 7}
                          }}
                  }}
          })},
@@ -178,6 +178,7 @@ std::map<std::string, hcl::Value> cases = {
 std::vector<std::string> invalidCases = {
     "multiline_bad.hcl",
     "multiline_literal.hcl",
+    "multiline_literal_single_quoted.hcl",
     "multiline_no_marker.hcl",
     "unterminated_block_comment.hcl",
     "unterminated_brace.hcl",

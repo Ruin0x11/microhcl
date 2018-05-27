@@ -250,16 +250,14 @@ private:
 
 class Lexer {
 public:
-    explicit Lexer(std::istream& is) : is_(is), lineNo_(1), peek_(Token(TokenType::ILLEGAL)) {}
+    explicit Lexer(std::istream& is) : is_(is),
+                                       lineNo_(1),
+                                       columnNo_(0) {}
 
     Token nextToken();
-    Token peekToken() {
-        if (peek_.type() == TokenType::ILLEGAL)
-            peek_ = nextToken();
-        return peek_;
-    }
 
     int lineNo() const { return lineNo_; }
+    int columnNo() const { return columnNo_; }
 
     // Skips if UTF8BOM is found.
     // Returns true if success. Returns false if intermediate state is left.
@@ -280,9 +278,9 @@ private:
     Token nextStringSingleQuote();
     Token nextHereDoc();
 
-    Token peek_;
     std::istream& is_;
     int lineNo_;
+    int columnNo_;
 };
 
 class Parser {
@@ -305,6 +303,7 @@ private:
     const Token& token() const { return token_; }
     void nextToken() { token_ = lexer_.nextToken(); }
     bool consume(char c) { return lexer_.consume(c); }
+    int columnNo() { return lexer_.columnNo(); }
 
     void skipForKey();
     void skipForValue();
@@ -320,8 +319,6 @@ private:
     bool parseObjectType(Value&);
     bool parseListType(Value&);
     bool parseLiteralType(Value&);
-
-    Token peekToken() { std::cout << "PEEK" << std::endl; return lexer_.peekToken(); };
 
     void addError(const std::string& reason);
 
@@ -585,8 +582,12 @@ inline bool Lexer::current(char* c)
 inline void Lexer::next()
 {
     int x = is_.get();
-    if (x == '\n')
+    if (x == '\n') {
+        columnNo_ = 0;
         ++lineNo_;
+    } else {
+        ++columnNo_;
+    }
 }
 
 inline bool Lexer::consume(char c)
@@ -689,6 +690,8 @@ inline Token Lexer::nextStringDoubleQuote()
             default:
                 return Token(TokenType::ILLEGAL, std::string("string has unknown escape sequence"));
             }
+        } else if (c == '\n' && braces == 0) {
+            return Token(TokenType::ILLEGAL, std::string("found newline while parsing non-HIL string literal"));
         } else if (c == '"' && braces == 0) {
             return Token(TokenType::STRING, s);
         }
@@ -720,6 +723,8 @@ inline Token Lexer::nextStringSingleQuote()
         next();
         if (c == '\'') {
             return Token(TokenType::STRING, s);
+        } else if (c == '\n') {
+            return Token(TokenType::ILLEGAL, std::string("found newline while parsing string literal"));
         }
 
         s += c;
@@ -735,20 +740,20 @@ inline Token Lexer::nextHereDoc()
     if (!consume('<'))
         return Token(TokenType::ILLEGAL, std::string("heredoc didn't start with '<<'?"));
 
-    std::string s;
+    std::string anchor;
     char c;
-    bool indent = false;
+    int indent = 0;
 
     current(&c);
 
     // Indented heredoc syntax
     if(c == '-') {
-        indent = true;
+        indent = columnNo() - 2;
         next();
     }
 
-    while(current(&c) && (isalpha(c) || ('0' <= c && c <= '9'))) {
-        s += c;
+    while(current(&c) && (isalpha(c) || isdigit(c))) {
+        anchor += c;
         next();
     }
 
@@ -764,31 +769,29 @@ inline Token Lexer::nextHereDoc()
         return Token(TokenType::ILLEGAL, std::string("invalid characters in heredoc anchor"));
     }
 
-    if(s.size() == 0) {
+    if(anchor.size() == 0) {
         return Token(TokenType::ILLEGAL, std::string("zero-length heredoc anchor"));
     }
 
     std::string buffer;
     std::string line;
-    int indentLevel = -1;
 
     while(current(&c)) {
         next();
-        if (indent && indentLevel == -1) {
-            indentLevel = 0;
-            current(&c);
-            while(current(&c) && c == '\t') {
-                indentLevel++;
+        std::cout << "Buff: "<< buffer << std::endl;
+        std::cout << "Line: "<< line << std::endl;
+        std::cout << "Anch: "<< anchor << std::endl;
+        if (line.empty()) {
+            int remain = indent;
+            while (current(&c) && remain > 0) {
+                if (c != ' ') {
+                    return Token(TokenType::ILLEGAL, std::string("expected heredoc to be properly indented"));
+                }
                 next();
-            }
-        } else if (line.size() == 0) {
-            int remain = indentLevel;
-            while(current(&c) && (c == '\t' && remain > 0)) {
                 remain--;
-                next();
             }
         }
-        if(current(&c) && c == '\n') {
+        if (current(&c) && c == '\n') {
             if (buffer.size() != 0) {
                 buffer += '\n';
             }
@@ -798,7 +801,9 @@ inline Token Lexer::nextHereDoc()
         else {
             line += c;
         }
-        if(line.compare(s) == 0) {
+        if (line.compare(anchor) == 0) {
+            buffer += '\n';
+            std::cout << "DONE: "<< anchor << std::endl;
             break;
         }
     }
@@ -812,6 +817,10 @@ inline Token Lexer::nextHereDoc()
     }
 }
 
+inline bool isValidIdentChar(char c) {
+    return isalpha(c) || isdigit(c) || c == '_' || c == '-' || c == '.';
+}
+
 inline Token Lexer::nextValueToken()
 {
     std::string s;
@@ -821,7 +830,7 @@ inline Token Lexer::nextValueToken()
         s += c;
         next();
 
-        while (current(&c) && (isalpha(c) || isdigit(c) || c == '_' || c == '.')) {
+        while (current(&c) && isValidIdentChar(c)) {
             s += c;
             next();
         }
@@ -887,12 +896,6 @@ inline bool isWhitespace(char c)
 
 inline Token Lexer::nextToken()
 {
-    if (peek_.type() != TokenType::ILLEGAL) {
-        Token tok = peek_;
-        peek_ = Token(TokenType::ILLEGAL, "illegal");
-        return tok;
-    }
-
     char c;
     while (current(&c)) {
         if (isWhitespace(c)) {
@@ -1833,10 +1836,10 @@ inline bool Parser::parseObject(Value& currentValue)
         addError("Reached end of file");
         return false;
     default:
-        addError("Unknown token");
+        addError("Unknown token: " + token().strValue());
         return false;
     }
-    addError("Unknown token");
+    addError("Unknown token: " + token().strValue());
     return false;
 }
 

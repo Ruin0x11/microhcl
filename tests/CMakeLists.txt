@@ -25,6 +25,9 @@ endif()
 add_definitions(-DSRC_DIR="${CMAKE_SOURCE_DIR}")
 #add_definitions(-DTESTCASE_DIR="${CMAKE_SOURCE_DIR}/../testcase")
 
+# Force maps to be ordered for testing equality
+add_definitions(-DMICROHCL_USE_MAP)
+
 set (CATCH_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/catch2})
 add_library(Catch INTERFACE)
 target_include_directories(Catch INTERFACE ${CATCH_INCLUDE_DIR})
