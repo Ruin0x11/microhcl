@@ -25,18 +25,6 @@ static hcl::Value parse(const std::string& s)
     return v;
 }
 
-static bool parseFile(const std::string& filename)
-{
-    std::ifstream is(fixtureDir + "/" + filename);
-    REQUIRE(is);
-    hcl::internal::Parser p(is);
-
-    hcl::Value v = p.parse();
-    if (p.errorReason().size() != 0)
-        std::cerr << p.errorReason() << std::endl;
-    return v.valid();
-}
-
 static bool parseFails(const std::string& s)
 {
     std::stringstream ss(s);
@@ -139,17 +127,27 @@ TEST_CASE("parse heredoc")
 {
     hcl::Value v = parse(
         "hoge = <<EOF\nHello\nWorld\nEOF\n"
-        "fuga = <<FOO123\n\thoge\n\tfuga\nFOO123\n");
-    REQUIRE("Hello\nWorld" == v.get<std::string>("hoge"));
-    REQUIRE("\thoge\n\tfuga" == v.get<std::string>("fuga"));
+        "fuga = <<FOO123\n\thoge\n\tfuga\nFOO123\n"
+        "piyo = <<-EOF\n\t\t\tOuter text\n\t\t\t\tIndented text\n\t\t\tEOF\n"
+        );
+    REQUIRE("Hello\nWorld\n" == v.get<std::string>("hoge"));
+    REQUIRE("\thoge\n\tfuga\n" == v.get<std::string>("fuga"));
+    REQUIRE("Outer text\n\tIndented text\n" == v.get<std::string>("piyo"));
 }
 
 
 TEST_CASE("parse indented heredoc")
 {
     hcl::Value v = parse(
-        "hoge = <<-EOF\n\t\tHello\n\t\t\tWorld\n\t\tEOF");
-    REQUIRE("Hello\n\tWorld" == v.get<std::string>("hoge"));
+        "hoge = <<-EOF\n    Hello\n      World\n    EOF\n");
+    REQUIRE("Hello\n  World\n" == v.get<std::string>("hoge"));
+}
+
+TEST_CASE("parse indented heredoc with hanging indent")
+{
+    hcl::Value v = parse(
+        "hoge = <<-EOF\n    Hello\n  World\n             EOF\n");
+    REQUIRE("    Hello\n  World\n" == v.get<std::string>("hoge"));
 }
 
 TEST_CASE("parse single quoted string")
@@ -186,7 +184,7 @@ TEST_CASE("parse list")
     REQUIRE(3UL == w.size());
     REQUIRE(1 == w.get<int>(0));
     REQUIRE("string" == w.get<std::string>(1));
-    REQUIRE("heredoc contents" == w.get<std::string>(2));
+    REQUIRE("heredoc contents\n" == w.get<std::string>(2));
 }
 
 TEST_CASE("parse invalid list")
@@ -450,7 +448,7 @@ foo "bar" baz { "hoge" = fuge }
     REQUIRE("fugera" == bazB.get<std::string>("hogera"));
 }
 
-TEST_CASE("parsing nested assignment with object")
+TEST_CASE("parse nested assignment with object")
 {
     hcl::Value v = parse(R"(
 foo = 6
@@ -464,6 +462,35 @@ foo "bar" { hoge = "piyo" }
     const hcl::Value& b = foo.get<hcl::Object>(1);
     const hcl::Value& bar = b.get<hcl::Object>("bar");
     REQUIRE("piyo" == bar.get<std::string>("hoge"));
+}
+
+TEST_CASE("parse merging of object lists")
+{
+    hcl::Value a = parse(R"(
+chara putit { name = "putit" }
+chara yeek  { name = "yeek"  }
+)");
+    hcl::Value b = parse(R"(
+chara snail { name = "snail" }
+chara shade { name = "shade" }
+)");
+
+    a.merge(b);
+    REQUIRE(0);
+}
+
+TEST_CASE("parse merging of object list and single object")
+{
+    hcl::Value a = parse(R"(
+chara putit { name = "putit" }
+)");
+    hcl::Value b = parse(R"(
+chara  { name = "putit" }
+chara yeek  { name = "yeek"  }
+)");
+
+    a.merge(b);
+    REQUIRE(0);
 }
 
 TEST_CASE("parse comment group")
@@ -493,14 +520,14 @@ TEST_CASE("parse official HCL tests")
             "assign_colon.hcl",
             true,
         },
-        {
-            "comment.hcl",
-            false,
-        },
-        {
-            "comment_crlf.hcl",
-            false,
-        },
+        // {
+        //     "comment.hcl",
+        //     false,
+        // },
+        // {
+        //     "comment_crlf.hcl",
+        //     false,
+        // },
         {
             "comment_lastline.hcl",
             false,

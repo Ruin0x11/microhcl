@@ -5,8 +5,9 @@
 #include <cassert>
 #include <cctype>
 #include <fstream>
-#include <istream>
 #include <iostream>
+#include <istream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #ifdef MICROHCL_USE_MAP
@@ -321,6 +322,8 @@ private:
     bool parseLiteralType(Value&);
 
     void addError(const std::string& reason);
+
+    bool unindentHeredoc(const std::string& heredoc, std::string& out);
 
     Lexer lexer_;
     Token token_;
@@ -733,6 +736,13 @@ inline Token Lexer::nextStringSingleQuote()
     return Token(TokenType::ILLEGAL, std::string("string didn't end with '\''?"));
 }
 
+inline bool hasSuffix(const std::string & s, const std::string & suffix) {
+    if(suffix.size() > s.size()) {
+        return false;
+    }
+    return std::mismatch(suffix.rbegin(),suffix.rend(),s.rbegin()).first == suffix.rend();
+}
+
 inline Token Lexer::nextHereDoc()
 {
     if (!consume('<'))
@@ -740,22 +750,28 @@ inline Token Lexer::nextHereDoc()
     if (!consume('<'))
         return Token(TokenType::ILLEGAL, std::string("heredoc didn't start with '<<'?"));
 
+    std::string s("<<");
     std::string anchor;
     char c;
-    int indent = 0;
 
     current(&c);
 
     // Indented heredoc syntax
     if(c == '-') {
-        indent = columnNo() - 2;
+        s += c;
         next();
     }
 
-    while(current(&c) && (isalpha(c) || isdigit(c))) {
+    while (current(&c) && (isalpha(c) || isdigit(c))) {
         anchor += c;
         next();
     }
+
+    if (anchor.size() == 0) {
+        return Token(TokenType::ILLEGAL, std::string("heredoc anchor was empty"));
+    }
+
+    s += anchor;
 
     if(!current(&c)) {
         return Token(TokenType::ILLEGAL, std::string("end of file reached"));
@@ -769,56 +785,57 @@ inline Token Lexer::nextHereDoc()
         return Token(TokenType::ILLEGAL, std::string("invalid characters in heredoc anchor"));
     }
 
-    if(anchor.size() == 0) {
+    s += '\n';
+
+    if(s.size() == 0) {
         return Token(TokenType::ILLEGAL, std::string("zero-length heredoc anchor"));
     }
 
     std::string buffer;
     std::string line;
+    std::string indentLine;
 
+    std::cout << "s: "<< s << std::endl;
     while(current(&c)) {
         next();
         std::cout << "Buff: "<< buffer << std::endl;
         std::cout << "Line: "<< line << std::endl;
-        std::cout << "Anch: "<< anchor << std::endl;
-        if (line.empty()) {
-            int remain = indent;
-            while (current(&c) && remain > 0) {
-                if (c != ' ') {
-                    return Token(TokenType::ILLEGAL, std::string("expected heredoc to be properly indented"));
-                }
-                next();
-                remain--;
-            }
-        }
+        std::cout << "Anch: \""<< anchor << "\"" << std::endl;
         if (current(&c) && c == '\n') {
             if (buffer.size() != 0) {
                 buffer += '\n';
             }
+            buffer += indentLine;
             buffer += line;
+            indentLine.clear();
             line.clear();
         }
-        else {
+        else if (current(&c) && line.size() == 0 && (c == ' ' || c == '\t')) {
+            indentLine += c;
+        } else if(current(&c)) {
             line += c;
         }
         if (line.compare(anchor) == 0) {
+            buffer += '\n';
+            buffer += indentLine;
+            buffer += line;
             buffer += '\n';
             std::cout << "DONE: "<< anchor << std::endl;
             break;
         }
     }
 
+    s += buffer;
+    std::cout << "Final: "<< s << std::endl;
+
     if(current(&c)) {
         next();
-        return Token(TokenType::HEREDOC, buffer);
     }
-    else {
-        return Token(TokenType::ILLEGAL, std::string("heredoc not terminated"));
-    }
+    return Token(TokenType::HEREDOC, s);
 }
 
 inline bool isValidIdentChar(char c) {
-    return isalpha(c) || isdigit(c) || c == '_' || c == '-' || c == '.';
+    return isalpha(c) || isdigit(c) || c == '_' || c == '-' || c == '.' || c == ':';
 }
 
 inline Token Lexer::nextValueToken()
@@ -1853,7 +1870,7 @@ inline bool Parser::parseObjectType(Value& currentValue)
     nextToken();
     Value result = parseObjectList(true);
 
-    if(!errorReason().empty() && token().type() != TokenType::RBRACE) {
+    if(!errorReason().empty()) {
         addError("failed parsing object list");
         return false;
     }
@@ -1942,12 +1959,22 @@ inline bool Parser::parseListType(Value& currentValue)
     return false;
 }
 
-bool Parser::parseLiteralType(Value& currentValue)
+inline bool Parser::parseLiteralType(Value& currentValue)
 {
     std::cout << "ParseLiteralType" << std::endl;
     switch (token().type()) {
+    case TokenType::HEREDOC: {
+        std::cout << "LitHeredoc" << std::endl;
+        std::string unindented;
+        if (!unindentHeredoc(token().strValue(), unindented)) {
+            addError("Failed unindenting heredoc: " + token().strValue());
+            return false;
+        }
+        currentValue = unindented;
+        std::cout << "LitHeredoc: \"" << unindented << "\"" << std::endl;
+        return true;
+    }
     case TokenType::STRING:
-    case TokenType::HEREDOC:
     case TokenType::IDENT:
         std::cout << "Lit: " << token().strValue() << std::endl;
         currentValue = token().strValue();
@@ -1972,6 +1999,121 @@ bool Parser::parseLiteralType(Value& currentValue)
         addError("unexpected token");
         return false;
     }
+}
+
+static inline int isSpace(int c)
+{
+    return (c == ' ' || c == '\t') ? 1 : 0;
+}
+
+static inline std::string trimRight(const std::string& s) {
+  std::string r(s);
+  r.erase(std::find_if(r.rbegin(), r.rend(),
+                       std::not1(std::ptr_fun<int, int>(isSpace))
+              ).base(), r.end());
+  return r;
+}
+
+static inline std::string join(const std::vector<std::string>& elements, const char* const separator)
+{
+    switch (elements.size())
+    {
+        case 0:
+            return "";
+        case 1:
+            return elements[0];
+        default:
+            std::ostringstream os;
+            std::copy(elements.begin(), elements.end()-1, std::ostream_iterator<std::string>(os, separator));
+            os << *elements.rbegin();
+            return os.str();
+    }
+}
+static inline bool hasPrefix(const std::string & s, const std::string & prefix) {
+	return std::mismatch(prefix.begin(), prefix.end(), s.begin()).first == prefix.end();
+}
+
+inline std::string & trimPrefix(std::string & s, const std::string & prefix) {
+	if (!hasPrefix(s,prefix)) {
+		return s;
+	}
+	s.erase(0,prefix.size());
+	return s;
+}
+
+inline bool Parser::unindentHeredoc(const std::string& heredoc, std::string& out)
+{
+    auto index = heredoc.find("\n");
+    int contentBegin = index + 1;
+    int contentEnd = heredoc.size() - contentBegin - (index - 2);
+    std::string content = heredoc.substr(contentBegin, contentEnd);
+    std::cout << "con: \"" << content << "\"" << std::endl;
+
+    if (index == std::string::npos) {
+        addError("heredoc doesn't contain newline");
+        return false;
+    }
+
+    bool unindent = heredoc[2] == '-';
+
+    if (!unindent) {
+        std::cout << "NON unindent" << std::endl;
+        out = heredoc.substr(contentBegin, contentEnd - 1);
+        return true;
+    }
+
+    std::vector<std::string> lines;
+    std::istringstream ss(content);
+    std::string line;
+    while (std::getline(ss, line)) {
+        lines.push_back(line);
+    }
+
+    std::string whitespacePrefix = lines[lines.size() - 1];
+
+    bool isIndented = true;
+    for (const auto& line : lines) {
+        std::cout << "Pref: \"" << whitespacePrefix << "\"" << std::endl;
+        std::cout << "Line: \"" << line << "\"" << std::endl;
+        if(whitespacePrefix.size() > line.size()) {
+            std::cout << "size > " << std::endl;
+            isIndented = false;
+            break;
+        }
+
+        auto res = std::mismatch(whitespacePrefix.begin(), whitespacePrefix.end(), line.begin());
+
+        if (res.first == whitespacePrefix.end()) {
+            continue;
+        }
+
+        std::cout << "whitespacePrefix failure " << std::endl;
+        isIndented = false;
+        break;
+    }
+
+    if (!isIndented) {
+        std::cout << "NOT indented" << std::endl;
+        out = trimRight(heredoc.substr(contentBegin, contentEnd));
+        return true;
+    }
+
+    std::vector<std::string> unindentedLines;
+    for (auto line = lines.begin(); line < lines.end(); line++) {
+        std::cout << "Pref: \"" << whitespacePrefix << "\"" << std::endl;
+        std::cout << "LINE: \"" << *line << "\"" << std::endl;
+        if (line + 1 == lines.end()) {
+            unindentedLines.push_back(std::string());
+            break;
+        }
+        trimPrefix(*line, whitespacePrefix);
+        std::cout << "NEWLINE: \"" << *line << "\"" << std::endl;
+        unindentedLines.push_back(std::move(*line));
+    }
+
+    out = join(unindentedLines, "\n");
+    std::cout << "UNINDENT \"" << out << "\"" << std::endl;
+    return true;
 }
 
 } // namespace internal

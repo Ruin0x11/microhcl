@@ -37,12 +37,10 @@ include_directories(../include)
 #add_executable(parse_file parse_file.cc)
 #add_executable(parse_file2 parse_file_2.cc)
 
-function(add_hcl_test target)
-    add_executable(${target}_test ${target}_test.cpp main.cpp)
-    target_link_libraries(${target}_test Catch)
-    add_test(${target}_test ${target}_test)
-endfunction()
+set(TEST_SOURCES
+  decoding_test.cpp
+  lexer_test.cpp
+  parser_test.cpp)
 
-add_hcl_test(lexer)
-add_hcl_test(parser)
-add_hcl_test(decoding)
+add_executable(test_runner ${TEST_SOURCES} main.cpp)
+target_link_libraries(test_runner Catch)

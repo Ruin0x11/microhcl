@@ -70,8 +70,8 @@ std::map<std::string, hcl::Value> cases = {
              {"qux",          "back\\slash"},
              {"bar",          "new\nline"},
              {"qax",          R"(slash\:colon)"},
-             {"nested",       R"(${HH\\:mm\\:ss})"},
-             {"nestedquotes", R"(${"\"stringwrappedinquotes\""})"}
+             {"nested",       R"(${HH\:mm\:ss})"},
+             {"nestedquotes", R"(${""stringwrappedinquotes""})"}
          })},
     {"float.hcl",
      hcl::Value(hcl::Object{
@@ -152,16 +152,16 @@ std::map<std::string, hcl::Value> cases = {
                                  }}}
                      }}}
          })},
-    {"nested_block_comment.hcl",
-     hcl::Value(hcl::Object{
-             {"bar", "value"}
-         })},
+    // {"nested_block_comment.hcl",
+    //  hcl::Value(hcl::Object{
+    //          {"bar", "value"}
+    //      })},
     {"escape_backslash.hcl",
      hcl::Value(hcl::Object{
              {"output", hcl::Object{
-                     {"one", R"(${replace(var.sub_domain, ".", "\\.")})"},
-                     {"two", R"(${replace(var.sub_domain, ".", "\\\\.")})"},
-                     {"many", R"(${replace(var.sub_domain, ".", "\\\\\\\\.")})"}
+                     {"one", R"(${replace(var.sub_domain, ".", "\.")})"},
+                     {"two", R"(${replace(var.sub_domain, ".", "\\.")})"},
+                     {"many", R"(${replace(var.sub_domain, ".", "\\\\.")})"}
                  }}
          })},
     {"object_with_bool.hcl",
@@ -171,6 +171,27 @@ std::map<std::string, hcl::Value> cases = {
                      {"permissions", hcl::Object{
                              {"bool", hcl::List{false}}
                          }},
+                 }}
+         })},
+    {"list_of_nested_object_lists.hcl",
+     hcl::Value(hcl::Object{
+             {"variable", hcl::List{
+                     hcl::Object{
+                         {"foo", hcl::Object{
+                                 {"default", "bar"},
+                                 {"description", "bar"}
+                             }},
+                         {"amis", hcl::Object{
+                                 {"default", hcl::Object{
+                                         {"east", "foo"}
+                                     }}
+                             }}
+                     },
+                         hcl::Object{
+                             {"foo", hcl::Object{
+                                     {"hoge", "fuga"}
+                                 }}
+                         }
                  }}
          })}
 };
