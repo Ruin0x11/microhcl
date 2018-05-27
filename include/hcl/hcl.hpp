@@ -1,6 +1,7 @@
 #ifndef MICROHCL_H_
 #define MICROHCL_H_
 
+#include <algorithm>
 #include <cassert>
 #include <cctype>
 #include <fstream>
@@ -126,6 +127,9 @@ public:
     // When the same key exists, it will be overwritten.
     bool merge(const Value&);
 
+    // Assigns a value based on a nested list of keys.
+    bool mergeObjects(const std::vector<std::string>&, Value&);
+
     // Finds a value with |key|. It searches only children.
     Value* findChild(const std::string& key);
     const Value* findChild(const std::string& key) const;
@@ -143,6 +147,17 @@ public:
     Value* find(size_t index);
     Value* push(const Value& v);
     Value* push(Value&& v);
+
+    // ----------------------------------------------------------------------
+    // Others
+
+    // Writer.
+    static std::string spaces(int num);
+    static std::string escapeKey(const std::string& key);
+
+    void write(std::ostream*, const std::string& keyPrefix = std::string(), int indent = -1) const;
+
+    friend std::ostream& operator<<(std::ostream&, const Value&);
 
 private:
     static const char* typeToString(Type);
@@ -1245,6 +1260,109 @@ inline bool operator==(const Value& lhs, const Value& rhs)
     }
 }
 
+// static
+inline std::ostream& operator<<(std::ostream& os, const hcl::Value& v)
+{
+    v.write(&os);
+    return os;
+}
+
+inline std::string Value::spaces(int num)
+{
+    if (num <= 0)
+        return std::string();
+
+    return std::string(num, ' ');
+}
+
+inline std::string Value::escapeKey(const std::string& key)
+{
+    auto position = std::find_if(key.begin(), key.end(), [](char c) -> bool {
+        if (std::isalnum(c) || c == '_' || c == '-')
+            return false;
+        return true;
+    });
+
+    if (position != key.end()) {
+        std::string escaped = "\"";
+        for (const char& c : key) {
+            if (c == '\\' || c  == '"')
+                escaped += '\\';
+            escaped += c;
+        }
+        escaped += "\"";
+
+        return escaped;
+    }
+
+    return key;
+}
+
+inline void Value::write(std::ostream* os, const std::string& keyPrefix, int indent) const
+{
+    switch (type_) {
+    case NULL_TYPE:
+        failwith("null type value is not a valid value");
+        break;
+    case BOOL_TYPE:
+        (*os) << (bool_ ? "true" : "false");
+        break;
+    case INT_TYPE:
+        (*os) << int_;
+        break;
+    case DOUBLE_TYPE: {
+        (*os) << std::fixed << std::showpoint << double_;
+        break;
+    }
+    case STRING_TYPE:
+        (*os) << '"' << internal::escapeString(*string_) << '"';
+        break;
+    case LIST_TYPE:
+        (*os) << '[';
+        for (size_t i = 0; i < list_->size(); ++i) {
+            if (i)
+                (*os) << ", ";
+            (*list_)[i].write(os, keyPrefix, -1);
+        }
+        (*os) << ']';
+        break;
+    case OBJECT_TYPE:
+        for (const auto& kv : *object_) {
+            if (kv.second.is<Object>())
+                continue;
+            if (kv.second.is<List>() && kv.second.size() > 0 && kv.second.find(0)->is<Object>())
+                continue;
+            (*os) << spaces(indent) << escapeKey(kv.first) << " = ";
+            kv.second.write(os, keyPrefix, indent >= 0 ? indent + 1 : indent);
+            (*os) << '\n';
+        }
+        for (const auto& kv : *object_) {
+            if (kv.second.is<Object>()) {
+                std::string key(keyPrefix);
+                if (!keyPrefix.empty())
+                    key += ".";
+                key += escapeKey(kv.first);
+                (*os) << "\n" << spaces(indent) << "[" << key << "]\n";
+                kv.second.write(os, key, indent >= 0 ? indent + 1 : indent);
+            }
+            if (kv.second.is<List>() && kv.second.size() > 0 && kv.second.find(0)->is<Object>()) {
+                std::string key(keyPrefix);
+                if (!keyPrefix.empty())
+                    key += ".";
+                key += escapeKey(kv.first);
+                for (const auto& v : kv.second.as<List>()) {
+                    (*os) << "\n" << spaces(indent) << "[[" << key << "]]\n";
+                    v.write(os, key, indent >= 0 ? indent + 1 : indent);
+                }
+            }
+        }
+        break;
+    default:
+        failwith("writing unknown type");
+        break;
+    }
+}
+
 template<typename T>
 inline typename call_traits<T>::return_type Value::get(const std::string& key) const
 {
@@ -1310,6 +1428,47 @@ inline bool Value::merge(const hcl::Value& v)
         } else {
             setChild(kv.first, kv.second);
         }
+    }
+
+    return true;
+}
+
+inline bool Value::mergeObjects(const std::vector<std::string>& keys, Value& added)
+{
+    Value& nestedValue = added;
+    if (keys.size() > 1) {
+        Value parent((Object()));
+        Value* ptr = &parent;
+        std::vector<std::string> allButFirst(keys.begin() + 1, keys.end());
+        for (auto key = allButFirst.begin(); key < allButFirst.end(); key++) {
+            if ((key != allButFirst.end()) && (key + 1 == allButFirst.end())) {
+                std::cout << "++++MERGE: SET FINAL " << *key << std::endl;
+                ptr->set(*key, nestedValue);
+            } else {
+                std::cout << "++++MERGE: ADD NESTED " << *key << std::endl;
+                ptr = ptr->set(*key, Object());
+            }
+        }
+        nestedValue = parent;
+    }
+    Value* existing = find(keys.front());
+    if(existing)  {
+        if (existing->is<List>()) {
+            // This is an object list. Add the object.
+            std::cout << "++++MERGE: EXISTING LIST" << keys.front() << std::endl;
+            existing->push(added);
+        } else {
+            // We tried assigning to a value that exists already.
+            // Upgrade it to a list.
+            std::cout << "++++MERGE: UPGRADE TO LIST" << keys.front() << std::endl;
+            Value l((List()));
+            l.push(*existing);
+            l.push(added);
+            set(keys.front(), l);
+        }
+    } else {
+        std::cout << "++++MERGE: SET NEW " << keys.front() << std::endl;
+        set(keys.front(), added);
     }
 
     return true;
@@ -1571,43 +1730,7 @@ inline Value Parser::parseObjectList(bool isNested)
         if(token().type() == TokenType::COMMA)
             nextToken();
 
-        Value* object = &node;
-        if(keys.size() > 1) {
-            Value* parent = &node;
-            std::vector<std::string> allButLast(keys.begin(), keys.end()-1);
-            for (const auto& key : allButLast) {
-                std::cout << "now on " << key << std::endl;
-                object = parent->find(key);
-                if(object && !object->is<Object>()) {
-                    addError("tried setting nested object that wasn't an object");
-                    // Make the node invalid
-                    node = Value();
-                    object = nullptr;
-                    break;
-                }
-                if(!object) {
-                    std::cout << "===== assign new on " << key << std::endl;
-                    object = parent->setChild(key, Object());
-                    assert(object);
-                }
-                parent = object;
-            }
-        }
-
-        if (object) {
-            std::cout << "final on " << keys.back() << std::endl;
-            if (v.is<Object>()) {
-                if (v.size() == 0)
-                    object->setChild(keys.back(), std::move(v));
-                else
-                    object->merge(v);
-            } else {
-                object->setChild(keys.back(), std::move(v));
-            }
-        } else {
-            addError("no keys were found");
-            break;
-        }
+        node.mergeObjects(keys, v);
     }
 
     return node;
@@ -1847,7 +1970,6 @@ bool Parser::parseLiteralType(Value& currentValue)
         return false;
     }
 }
-
 
 } // namespace internal
 

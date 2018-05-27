@@ -17,6 +17,9 @@ static hcl::Value parse(const std::string& s)
         std::cerr << p.errorReason() << std::endl;
     }
     REQUIRE(v.valid());
+    std::cout << "-----" << std::endl;
+    std::cout << v << std::endl;
+    std::cout << "-----" << std::endl;
     return v;
 }
 
@@ -370,10 +373,21 @@ foo bar { hoge = "fuge" }
 foo bar { hoge = "baz" }
 )");
 
-    const hcl::Value& foo = v.get<hcl::Object>("foo");
-    const hcl::Value& bar = foo.get<hcl::Object>("bar");
-    REQUIRE("baz" == bar.get<std::string>("hoge"));
-    REQUIRE("fugera" == bar.get<std::string>("hogera"));
+    const hcl::Value& foo = v.get<hcl::List>("foo");
+
+    const hcl::Value& a = foo.get<hcl::Object>(0);
+    const hcl::Value& b = foo.get<hcl::Object>(1);
+    const hcl::Value& c = foo.get<hcl::Object>(2);
+
+    const hcl::Value& barA = a.get<hcl::Object>("bar");
+    REQUIRE("piyo" == barA.get<std::string>("hoge"));
+    REQUIRE("fugera" == barA.get<std::string>("hogera"));
+
+    const hcl::Value& barB = b.get<hcl::Object>("bar");
+    REQUIRE("fuge" == barB.get<std::string>("hoge"));
+
+    const hcl::Value& barC = c.get<hcl::Object>("bar");
+    REQUIRE("baz" == barC.get<std::string>("hoge"));
 }
 
 TEST_CASE("parse multiple nested keys")
@@ -385,14 +399,24 @@ foo { hoge = "piyo" }
 foo hogera { hoge = "piyo" }
 )");
 
-    const hcl::Value& foo = v.get<hcl::Object>("foo");
-    const hcl::Value& bar = foo.get<hcl::Object>("bar");
-    const hcl::Value& baz = bar.get<hcl::Object>("baz");
-    const hcl::Value& hogera = v.get<hcl::Object>("foo");
-    REQUIRE("piyo" == foo.get<std::string>("hoge"));
-    REQUIRE("piyo" == bar.get<std::string>("hoge"));
-    REQUIRE("piyo" == baz.get<std::string>("hoge"));
-    REQUIRE("piyo" == hogera.get<std::string>("hoge"));
+    const hcl::Value& foo = v.get<hcl::List>("foo");
+
+    const hcl::Value& a = foo.get<hcl::Object>(0);
+    const hcl::Value& b = foo.get<hcl::Object>(1);
+    const hcl::Value& c = foo.get<hcl::Object>(2);
+    const hcl::Value& d = foo.get<hcl::Object>(3);
+
+    const hcl::Value& barA = a.get<hcl::Object>("bar");
+    const hcl::Value& bazA = barA.get<hcl::Object>("baz");
+    REQUIRE("piyo" == bazA.get<std::string>("hoge"));
+
+    const hcl::Value& barB = b.get<hcl::Object>("bar");
+    REQUIRE("piyo" == barB.get<std::string>("hoge"));
+
+    REQUIRE("piyo" == c.get<std::string>("hoge"));
+
+    const hcl::Value& hogeraD = d.get<hcl::Object>("hogera");
+    REQUIRE("piyo" == hogeraD.get<std::string>("hoge"));
 }
 
 TEST_CASE("parse nested assignment to string and ident")
@@ -401,19 +425,34 @@ TEST_CASE("parse nested assignment to string and ident")
 foo "bar" baz { "hoge" = fuge }
 "foo" bar baz { hogera = "fugera" }
 )");
-    const hcl::Value& foo = v.get<hcl::Object>("foo");
-    const hcl::Value& bar = foo.get<hcl::Object>("bar");
-    const hcl::Value& baz = bar.get<hcl::Object>("baz");
-    REQUIRE("piyo" == baz.get<std::string>("hoge"));
-    REQUIRE("fugera" == baz.get<std::string>("hogera"));
+    const hcl::Value& foo = v.get<hcl::List>("foo");
+
+    const hcl::Value& a = foo.get<hcl::Object>(0);
+    const hcl::Value& b = foo.get<hcl::Object>(1);
+
+    const hcl::Value& barA = a.get<hcl::Object>("bar");
+    const hcl::Value& bazA = barA.get<hcl::Object>("baz");
+    REQUIRE("fuge" == bazA.get<std::string>("hoge"));
+
+    const hcl::Value& barB = b.get<hcl::Object>("bar");
+    const hcl::Value& bazB = barB.get<hcl::Object>("baz");
+    REQUIRE("fugera" == bazB.get<std::string>("hogera"));
 }
 
-TEST_CASE("fail parsing nested assignment to non-object")
+TEST_CASE("parsing nested assignment with-object")
 {
-    REQUIRE(parseFails(R"(
+    hcl::Value v = parse(R"(
 foo = 6
-foo "bar" { hoge = "piyo" })"));
-    REQUIRE(parseFails(R"(foo = 6 foo "bar" { hoge = "piyo" })"));
+foo "bar" { hoge = "piyo" }
+)");
+
+    const hcl::Value& foo = v.get<hcl::List>("foo");
+
+    REQUIRE(6 == foo.get<int>(0));
+
+    const hcl::Value& b = foo.get<hcl::Object>(1);
+    const hcl::Value& bar = b.get<hcl::Object>("bar");
+    REQUIRE("piyo" == bar.get<std::string>("hoge"));
 }
 
 TEST_CASE("parse comment group")
