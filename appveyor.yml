@@ -1,0 +1,36 @@
+shallow_clone: true
+clone_folder: C:\projects\microhcl
+
+os:
+  - Visual Studio 2017
+
+environment:
+  matrix:
+  - CMAKE_ARGS: -G "Visual Studio 15 2017 Win64"
+    PREFIX: C:\SDK
+
+build:
+  verbosity: detailed
+
+configuration:
+  - Debug
+
+branches:
+  except:
+    - /pr\/.+/
+
+cache:
+  C:\SDK -> appveyor.yml
+
+before_build:
+  - call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+
+build_script:
+  - cd %APPVEYOR_BUILD_FOLDER%
+  - mkdir out
+  - mkdir out\Debug
+  - cd out\Debug
+  - cmake %CMAKE_ARGS% ..\..\tests
+  - cmake --build .
+  - cd Debug
+  - test_runner.exe

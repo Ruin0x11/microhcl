@@ -6,7 +6,10 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-enable_testing()
+# C++14 or later
+enable_language(CXX)
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(${CMAKE_VERSION} VERSION_LESS 2.8.12)
     message("Your cmake version is ${CMAKE_VERSION}. Please update it to 2.8.12 or newer.")
@@ -16,7 +19,6 @@ if(${CMAKE_VERSION} VERSION_LESS 2.8.12)
 endif()
 
 if(MSVC)
-    # Use mutli-thread runtime library to match with gtest's one.
     add_compile_options("/MT$<$<CONFIG:Debug>:d>")
 else()
     add_compile_options("-Wall" "-Wextra" "-std=c++11")
@@ -45,3 +47,7 @@ set(TEST_SOURCES
 
 add_executable(test_runner ${TEST_SOURCES} main.cpp)
 target_link_libraries(test_runner Catch)
+add_custom_command(TARGET test_runner POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E copy_directory
+                   "${CMAKE_CURRENT_SOURCE_DIR}/test-fixtures"
+                   "$<TARGET_FILE_DIR:test_runner>/tests/test-fixtures")

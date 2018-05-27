@@ -1,0 +1,36 @@
+
+language: cpp
+
+matrix:
+    include:
+        - os: linux
+          sudo: required
+          compiler: gcc-7
+          addons:
+              apt:
+                  sources:
+                      - ubuntu-toolchain-r-test
+                  packages:
+                      - g++-7
+                      - cmake
+        - os: osx
+          compiler: clang
+
+cache: apt
+
+before_script:
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then
+      brew update && brew upgrade cmake;
+    fi
+  - mkdir -p out/Debug
+  - cd out/Debug
+  - cmake -DCMAKE_BUILD_TYPE=DEBUG ../../tests
+
+script:
+ - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
+      export CC="gcc-7";
+      export CXX="g++-7";
+      gcc -v && g++ -v;
+   fi
+ - make -j4
+ - ./test_runner

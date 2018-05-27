@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cctype>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <istream>
 #include <iterator>
@@ -1463,7 +1464,7 @@ inline bool Value::mergeObjects(const std::vector<std::string>& keys, Value& add
     if(existing)  {
         if (existing->is<List>()) {
             // This is an object list. Add the object.
-            existing->push(added);
+            existing->push(std::move(added));
         } else {
             // We tried assigning to a value that exists already.
             // First, attempt to see if this is an object.
@@ -1492,7 +1493,7 @@ inline bool Value::mergeObjects(const std::vector<std::string>& keys, Value& add
             {
                 Value l((List()));
                 l.push(*existing);
-                l.push(added);
+                l.push(std::move(added));
                 set(keys.front(), l);
             }
         }
@@ -2031,7 +2032,7 @@ static inline int isSpace(int c)
 static inline std::string trimRight(const std::string& s) {
   std::string r(s);
   r.erase(std::find_if(r.rbegin(), r.rend(),
-                       std::not1(std::ptr_fun<int, int>(isSpace))
+                       std::not1(std::function<int(int)>(isSpace))
               ).base(), r.end());
   return r;
 }
@@ -2066,8 +2067,8 @@ inline std::string & trimPrefix(std::string & s, const std::string & prefix) {
 inline bool Parser::unindentHeredoc(const std::string& heredoc, std::string& out)
 {
     auto index = heredoc.find("\n");
-    int contentBegin = index + 1;
-    int contentEnd = heredoc.size() - contentBegin - (index - 2);
+    size_t contentBegin = index + 1;
+    size_t contentEnd = heredoc.size() - contentBegin - (index - 2);
     std::string content = heredoc.substr(contentBegin, contentEnd);
 
     if (index == std::string::npos) {
