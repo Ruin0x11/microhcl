@@ -823,7 +823,7 @@ inline Token Lexer::nextHereDoc()
 }
 
 inline bool isValidIdentChar(char c) {
-    return isalpha(c) || isdigit(c) || c == '_' || c == '-' || c == '.' || c == ':';
+    return isalpha(c) || isdigit(c) || c == '_' || c == '-' || c == '.' || c == ':' || c == '/';
 }
 
 inline Token Lexer::nextValueToken()
@@ -1602,9 +1602,8 @@ inline Value& Value::operator[](size_t index)
     if (!is<List>())
         failwith("type must be list to index by int");
 
-    if (index > list_->size()) {
-        list_->resize(index + 1);
-    }
+    if (list_->size() <= index)
+        failwith("index out of bound");
 
     if (Value* v = find(index))
         return *v;
@@ -1685,12 +1684,15 @@ inline Value* Value::ensureValue(const std::string& key)
     Value* current = this;
     while (true) {
         internal::Token t = lexer.nextToken();
-        if (!(t.type() == internal::TokenType::IDENT || t.type() == internal::TokenType::STRING)) {
-            std::cout << "E: " <<  static_cast<int>(t.type()) << std::endl;
+        if (key.size() > 0 && !(t.type() == internal::TokenType::IDENT || t.type() == internal::TokenType::STRING)) {
             failwith("invalid key first: " + t.strValue() + " ");
         }
 
         std::string part = t.strValue();
+
+        if (key.size() == 0)
+            part = "";
+
         t = lexer.nextToken();
         if (t.type() == internal::TokenType::PERIOD) {
             if (Value* candidate = current->findChild(part)) {
@@ -1706,7 +1708,6 @@ inline Value* Value::ensureValue(const std::string& key)
                 return v;
             return current->setChild(part, Value());
         } else {
-            std::cout << "E: " <<  static_cast<int>(t.type()) << std::endl;
             failwith("invalid key second: " + t.strValue() + " ");
         }
     }

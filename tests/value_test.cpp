@@ -458,13 +458,14 @@ TEST_CASE("operatorBox")
 TEST_CASE("operatorBoxList")
 {
     hcl::Value v;
-    v[0] = "value";
-    v[1] = "foobar";
+    v.push("value");
+    v.push("foobar");
 
     REQUIRE("value" == v.get<std::string>(0));
     REQUIRE("foobar" == v.get<std::string>(1));
     REQUIRE("value" == v[0].as<std::string>());
     REQUIRE("foobar" == v[1].as<std::string>());
+    REQUIRE_THROWS(v[2]);
 }
 
 TEST_CASE("test shares key with")

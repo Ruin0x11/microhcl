@@ -298,8 +298,6 @@ TEST_CASE("decode top level keys")
     hcl::Value value = parseFile(filename);
     REQUIRE(value.valid());
 
-    std::cout << value << std::endl;
-
     REQUIRE("blah" == value["template"][0]["source"].as<std::string>());
     REQUIRE("blahblah" == value["template"][1]["source"].as<std::string>());
 }
