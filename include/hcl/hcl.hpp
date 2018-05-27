@@ -122,7 +122,11 @@ public:
     bool has(const std::string& key) const { return find(key) != nullptr; }
     bool erase(const std::string& key);
 
+    Value& operator[](size_t index);
     Value& operator[](const std::string& key);
+
+    // Returns true if two objects share any keys (non-nesting).
+    bool sharesKeyWith(const hcl::Value& v) const;
 
     // Merge object. Returns true if succeeded. Otherwise, |this| might be corrupted.
     // When the same key exists, it will be overwritten.
@@ -136,6 +140,8 @@ public:
     const Value* findChild(const std::string& key) const;
     // Sets a value, and returns the pointer to the created value.
     // When the value having the same key exists, it will be overwritten.
+    Value* setChild(size_t index, const Value& v);
+    Value* setChild(size_t index, Value&& v);
     Value* setChild(const std::string& key, const Value& v);
     Value* setChild(const std::string& key, Value&& v);
     bool eraseChild(const std::string& key);
@@ -624,15 +630,6 @@ inline Token Lexer::nextStringDoubleQuote()
     int braces = 0;
     bool dollar = false;
 
-    if (current(&c) && c == '"') {
-        next();
-        if (!current(&c) || c != '"') {
-            // OK. It's empty string.
-            return Token(TokenType::STRING, std::string());
-        }
-        return Token(TokenType::ILLEGAL, std::string("string didn't end"));
-    }
-
     while (current(&c)) {
         next();
         if (braces == 0 && dollar && c == '{') {
@@ -714,12 +711,9 @@ inline Token Lexer::nextStringSingleQuote()
     char c;
 
     if (current(&c) && c == '\'') {
+        // OK. It's empty string.
         next();
-        if (!current(&c) || c != '\'') {
-            // OK. It's empty string.
-            return Token(TokenType::STRING, std::string());
-        }
-        return Token(TokenType::ILLEGAL, std::string("string didn't end with \'' ?"));
+        return Token(TokenType::STRING, std::string());
     }
 
     while (current(&c)) {
@@ -795,12 +789,8 @@ inline Token Lexer::nextHereDoc()
     std::string line;
     std::string indentLine;
 
-    std::cout << "s: "<< s << std::endl;
     while(current(&c)) {
         next();
-        std::cout << "Buff: "<< buffer << std::endl;
-        std::cout << "Line: "<< line << std::endl;
-        std::cout << "Anch: \""<< anchor << "\"" << std::endl;
         if (current(&c) && c == '\n') {
             if (buffer.size() != 0) {
                 buffer += '\n';
@@ -820,13 +810,11 @@ inline Token Lexer::nextHereDoc()
             buffer += indentLine;
             buffer += line;
             buffer += '\n';
-            std::cout << "DONE: "<< anchor << std::endl;
             break;
         }
     }
 
     s += buffer;
-    std::cout << "Final: "<< s << std::endl;
 
     if(current(&c)) {
         next();
@@ -853,14 +841,11 @@ inline Token Lexer::nextValueToken()
         }
 
         if (s == "true") {
-            std::cout << "TOKEN: BOOL " << true << std::endl;
             return Token(TokenType::BOOL, true);
         }
         if (s == "false") {
-            std::cout << "TOKEN: BOOL " << false << std::endl;
             return Token(TokenType::BOOL, false);
         }
-        std::cout << "TOKEN: IDENT " << s << std::endl;
         return Token(TokenType::IDENT, s);
     }
 
@@ -890,7 +875,6 @@ inline Token Lexer::nextNumber(bool leadingDot, bool leadingSub)
         std::stringstream ss(removeDelimiter(s));
         std::int64_t x;
         ss >> x;
-        std::cout << "TOKEN: INT " << x << std::endl;
         return Token(TokenType::NUMBER, x);
     }
 
@@ -898,7 +882,6 @@ inline Token Lexer::nextNumber(bool leadingDot, bool leadingSub)
         std::stringstream ss(removeDelimiter(s));
         double d;
         ss >> d;
-        std::cout << "TOKEN: DOUBLE " << d << std::endl;
         return Token(TokenType::FLOAT, d);
     }
 
@@ -928,65 +911,50 @@ inline Token Lexer::nextToken()
         switch (c) {
         case '=':
             next();
-            std::cout << "TOKEN: =" << std::endl;
             return Token(TokenType::ASSIGN, "=");
         case '+':
             next();
-            std::cout << "TOKEN: +" << std::endl;
             return Token(TokenType::ADD, "+");
         case '-':
             next();
             if (current(&c) && isdigit(c)) {
-                std::cout << "TOKEN: NUMBER" << std::endl;
                 return nextNumber(false, true);
             }
             else {
-                std::cout << "TOKEN: -" << std::endl;
                 return Token(TokenType::SUB, "-");
             }
         case '{':
             next();
-                std::cout << "TOKEN: {" << std::endl;
             return Token(TokenType::LBRACE, "{");
         case '}':
             next();
-                std::cout << "TOKEN: }" << std::endl;
             return Token(TokenType::RBRACE, "}");
         case '[':
             next();
-                std::cout << "TOKEN: [" << std::endl;
             return Token(TokenType::LBRACK, "[");
         case ']':
             next();
-                std::cout << "TOKEN: ]" << std::endl;
             return Token(TokenType::RBRACK, "]");
         case ',':
             next();
-                std::cout << "TOKEN: ," << std::endl;
             return Token(TokenType::COMMA, ",");
         case '.':
             next();
             if(current(&c) && isdigit(c)) {
-                std::cout << "TOKEN: DECNUMBER" << std::endl;
                 return nextNumber(true, false);
             }
             else {
-                std::cout << "TOKEN: ." << std::endl;
                 return Token(TokenType::PERIOD, ".");
             }
         case '\"':
-            std::cout << "TOKEN: STRING DQ" << std::endl;
             return nextStringDoubleQuote();
         case '\'':
-            std::cout << "TOKEN: STRING SQ" << std::endl;
             return nextStringSingleQuote();
         case '<':
-            std::cout << "TOKEN: HEREDOC" << std::endl;
             return nextHereDoc();
         case '/':
             next();
             if(current(&c) && c == '/') {
-                std::cout << "TOKEN: COMMENT" << std::endl;
                 skipUntilNewLine();
                 continue;
             }
@@ -1412,11 +1380,12 @@ inline const Value* Value::find(const std::string& key) const
 
         std::string part = t.strValue();
         t = lexer.nextToken();
-        if (t.type() == internal::TokenType::PERIOD) {
-            current = current->findChild(part);
-            if (!current || !current->is<Object>())
-                return nullptr;
-        } else if (t.type() == internal::TokenType::END_OF_FILE) {
+        //if (t.type() == internal::TokenType::PERIOD) {
+        //    current = current->findChild(part);
+        //    if (!current || !current->is<Object>())
+        //        return nullptr;
+        //} else
+        if (t.type() == internal::TokenType::END_OF_FILE) {
             return current->findChild(part);
         } else {
             return nullptr;
@@ -1427,6 +1396,22 @@ inline const Value* Value::find(const std::string& key) const
 inline Value* Value::find(const std::string& key)
 {
     return const_cast<Value*>(const_cast<const Value*>(this)->find(key));
+}
+
+inline bool Value::sharesKeyWith(const hcl::Value& v) const
+{
+    if (this == &v)
+        return true;
+    if (!is<Object>() || !v.is<Object>())
+        return false;
+
+    for (const auto& kv : *v.object_) {
+        if (find(kv.first)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 inline bool Value::merge(const hcl::Value& v)
@@ -1455,6 +1440,10 @@ inline bool Value::merge(const hcl::Value& v)
 
 inline bool Value::mergeObjects(const std::vector<std::string>& keys, Value& added)
 {
+    if(keys.size() == 0) {
+        return false;
+    }
+
     Value& nestedValue = added;
     if (keys.size() > 1) {
         Value parent((Object()));
@@ -1462,32 +1451,52 @@ inline bool Value::mergeObjects(const std::vector<std::string>& keys, Value& add
         std::vector<std::string> allButFirst(keys.begin() + 1, keys.end());
         for (auto key = allButFirst.begin(); key < allButFirst.end(); key++) {
             if ((key != allButFirst.end()) && (key + 1 == allButFirst.end())) {
-                std::cout << "++++MERGE: SET FINAL " << *key << std::endl;
                 ptr->set(*key, nestedValue);
             } else {
-                std::cout << "++++MERGE: ADD NESTED " << *key << std::endl;
                 ptr = ptr->set(*key, Object());
             }
         }
         nestedValue = parent;
     }
     Value* existing = find(keys.front());
+    bool expand = false;
     if(existing)  {
         if (existing->is<List>()) {
             // This is an object list. Add the object.
-            std::cout << "++++MERGE: EXISTING LIST" << keys.front() << std::endl;
             existing->push(added);
         } else {
             // We tried assigning to a value that exists already.
+            // First, attempt to see if this is an object.
+            if (existing->is<Object>()) {
+                if (!added.is<Object>()) {
+                    // We tried assigning a non-object to an existing object.
+                    // Expand it into a list.
+                    expand = true;
+                } else {
+                    // If the objects share any keys (not nested),
+                    // expand into a list. Else, merge the two
+                    // objects.
+                    if (existing->sharesKeyWith(added)) {
+                        expand = true;
+                    } else {
+                        existing->merge(added);
+                    }
+                }
+            } else {
+                // We tried assigning something to a non-object.
+                // Expand it into a list.
+                expand = true;
+            }
             // Upgrade it to a list.
-            std::cout << "++++MERGE: UPGRADE TO LIST" << keys.front() << std::endl;
-            Value l((List()));
-            l.push(*existing);
-            l.push(added);
-            set(keys.front(), l);
+            if(expand)
+            {
+                Value l((List()));
+                l.push(*existing);
+                l.push(added);
+                set(keys.front(), l);
+            }
         }
     } else {
-        std::cout << "++++MERGE: SET NEW " << keys.front() << std::endl;
         set(keys.front(), added);
     }
 
@@ -1499,6 +1508,30 @@ inline Value* Value::set(const std::string& key, const Value& v)
     Value* result = ensureValue(key);
     *result = v;
     return result;
+}
+
+inline Value* Value::setChild(size_t index, const Value& v)
+{
+    if (!valid())
+        *this = Value((List()));
+
+    if (!is<List>())
+        failwith("type must be list to do set(key, v).");
+
+    (*list_)[index] = v;
+    return &(*list_)[index];
+}
+
+inline Value* Value::setChild(size_t index, Value&& v)
+{
+    if (!valid())
+        *this = Value((List()));
+
+    if (!is<List>())
+        failwith("type must be object to do set(key, v).");
+
+    (*list_)[index] = std::move(v);
+    return &(*list_)[index];
 }
 
 inline Value* Value::setChild(const std::string& key, const Value& v)
@@ -1559,6 +1592,24 @@ inline bool Value::eraseChild(const std::string& key)
         failwith("type must be object to do erase(key).");
 
     return object_->erase(key) > 0;
+}
+
+inline Value& Value::operator[](size_t index)
+{
+    if (!valid())
+        *this = Value((List()));
+
+    if (!is<List>())
+        failwith("type must be list to index by int");
+
+    if (index > list_->size()) {
+        list_->resize(index + 1);
+    }
+
+    if (Value* v = find(index))
+        return *v;
+
+    return *setChild(index, Value());
 }
 
 inline Value& Value::operator[](const std::string& key)
@@ -1635,7 +1686,8 @@ inline Value* Value::ensureValue(const std::string& key)
     while (true) {
         internal::Token t = lexer.nextToken();
         if (!(t.type() == internal::TokenType::IDENT || t.type() == internal::TokenType::STRING)) {
-            failwith("invalid key");
+            std::cout << "E: " <<  static_cast<int>(t.type()) << std::endl;
+            failwith("invalid key first: " + t.strValue() + " ");
         }
 
         std::string part = t.strValue();
@@ -1654,7 +1706,8 @@ inline Value* Value::ensureValue(const std::string& key)
                 return v;
             return current->setChild(part, Value());
         } else {
-            failwith("invalid key");
+            std::cout << "E: " <<  static_cast<int>(t.type()) << std::endl;
+            failwith("invalid key second: " + t.strValue() + " ");
         }
     }
 }
@@ -1700,24 +1753,20 @@ inline const std::string& Parser::errorReason()
 
 inline Value Parser::parse()
 {
-    std::cout << "\n==== PARSE BEGIN ====" << std::endl;
     return parseObjectList(false);
 }
 
 inline Value Parser::parseObjectList(bool isNested)
 {
-    std::cout << "ParseObjectList" << std::endl;
     Value node((Object()));
 
     while (true) {
-        std::cout << "= NEXT =" << std::endl;
         if (token().type() == TokenType::END_OF_FILE) {
             break;
         }
         if (isNested) {
             // We're inside a nested object list, so end at an RBRACE.
             if (token().type() == TokenType::RBRACE) {
-                std::cout << "RBRACE END" << std::endl;
                 break;
             }
         }
@@ -1729,19 +1778,12 @@ inline Value Parser::parseObjectList(bool isNested)
             break;
         }
 
-        std::cout << "Keys: ";
-        for (const auto& i: keys)
-            std::cout << "\"" << i << "\" ";
-        std::cout << std::endl;
-
         Value v;
         if (!parseObjectItem(v)) {
             // Make the node invalid
             node = Value();
             break;
         }
-
-        std::cout << "Value: type " << v.type() << std::endl;
 
         nextToken();
 
@@ -1758,20 +1800,15 @@ inline Value Parser::parseObjectList(bool isNested)
 
 inline bool Parser::parseKeys(std::vector<std::string>& keys)
 {
-    std::cout << "ParseKeys" << std::endl;
-
     int keyCount = 0;
     keys.clear();
 
     while (true) {
-        std::cout << "Tok: " << static_cast<int>(token().type()) << " \"" << token().strValue() << "\"" << std::endl;
         switch (token().type()) {
         case TokenType::END_OF_FILE:
             addError("end of file reached");
-            std::cout << "KEYS EOF" << std::endl;
             return false;
         case TokenType::ASSIGN:
-            std::cout << "KEYS ASSIGN" << std::endl;
             if (keyCount > 1) {
                 addError("nested object expected: LBRACE got: " + token().strValue());
                 return false;
@@ -1783,7 +1820,6 @@ inline bool Parser::parseKeys(std::vector<std::string>& keys)
 
             return true;
         case TokenType::LBRACE:
-            std::cout << "KEYS LBRACE" << std::endl;
             if (keys.size() == 0) {
                 addError("expected IDENT | STRING got: LBRACE");
                 return false;
@@ -1792,17 +1828,14 @@ inline bool Parser::parseKeys(std::vector<std::string>& keys)
             return true;
         case TokenType::IDENT:
         case TokenType::STRING:
-            std::cout << "KEYS STRING " << token().strValue() << std::endl;
             keyCount++;
             keys.push_back(token().strValue());
             nextToken();
             break;
         case TokenType::ILLEGAL:
-            std::cout << "KEYS ILLEGAL " << token().strValue() << std::endl;
             addError("illegal character");
             return false;
         default:
-            std::cout << "KEYS ERROR " << token().strValue() << std::endl;
             addError("expected IDENT | STRING | ASSIGN | LBRACE got: " + token().strValue());
             return false;
         }
@@ -1813,7 +1846,6 @@ inline bool Parser::parseKeys(std::vector<std::string>& keys)
 
 inline bool Parser::parseObjectItem(Value& currentValue)
 {
-    std::cout << "ParseObjectItem" << std::endl;
     switch (token().type()) {
     case TokenType::ASSIGN:
         if (!parseObject(currentValue))
@@ -1832,7 +1864,6 @@ inline bool Parser::parseObjectItem(Value& currentValue)
 
 inline bool Parser::parseObject(Value& currentValue)
 {
-    std::cout << "ParseObject" << std::endl;
     nextToken();
 
     switch (token().type()) {
@@ -1862,7 +1893,6 @@ inline bool Parser::parseObject(Value& currentValue)
 
 inline bool Parser::parseObjectType(Value& currentValue)
 {
-    std::cout << "ParseObjectType" << std::endl;
     if(token().type() != TokenType::LBRACE) {
         addError("object list did not start with LBRACE");
         return false;
@@ -1886,7 +1916,6 @@ inline bool Parser::parseObjectType(Value& currentValue)
 
 inline bool Parser::parseListType(Value& currentValue)
 {
-    std::cout << "ParseListType" << std::endl;
     List a;
     bool needComma = false;
 
@@ -1961,38 +1990,30 @@ inline bool Parser::parseListType(Value& currentValue)
 
 inline bool Parser::parseLiteralType(Value& currentValue)
 {
-    std::cout << "ParseLiteralType" << std::endl;
     switch (token().type()) {
     case TokenType::HEREDOC: {
-        std::cout << "LitHeredoc" << std::endl;
         std::string unindented;
         if (!unindentHeredoc(token().strValue(), unindented)) {
             addError("Failed unindenting heredoc: " + token().strValue());
             return false;
         }
         currentValue = unindented;
-        std::cout << "LitHeredoc: \"" << unindented << "\"" << std::endl;
         return true;
     }
     case TokenType::STRING:
     case TokenType::IDENT:
-        std::cout << "Lit: " << token().strValue() << std::endl;
         currentValue = token().strValue();
         return true;
     case TokenType::BOOL:
-        std::cout << "Lit: " << token().boolValue() << std::endl;
         currentValue = token().boolValue();
         return true;
     case TokenType::NUMBER:
-        std::cout << "Lit: " << token().intValue() << std::endl;
         currentValue = token().intValue();
         return true;
     case TokenType::FLOAT:
-        std::cout << "Lit: " << token().doubleValue() << std::endl;
         currentValue = token().doubleValue();
         return true;
     case TokenType::ILLEGAL:
-        std::cout << "IllegalLit: " << token().strValue() << std::endl;
         addError(token().strValue());
         return false;
     default:
@@ -2047,7 +2068,6 @@ inline bool Parser::unindentHeredoc(const std::string& heredoc, std::string& out
     int contentBegin = index + 1;
     int contentEnd = heredoc.size() - contentBegin - (index - 2);
     std::string content = heredoc.substr(contentBegin, contentEnd);
-    std::cout << "con: \"" << content << "\"" << std::endl;
 
     if (index == std::string::npos) {
         addError("heredoc doesn't contain newline");
@@ -2057,7 +2077,6 @@ inline bool Parser::unindentHeredoc(const std::string& heredoc, std::string& out
     bool unindent = heredoc[2] == '-';
 
     if (!unindent) {
-        std::cout << "NON unindent" << std::endl;
         out = heredoc.substr(contentBegin, contentEnd - 1);
         return true;
     }
@@ -2073,10 +2092,7 @@ inline bool Parser::unindentHeredoc(const std::string& heredoc, std::string& out
 
     bool isIndented = true;
     for (const auto& line : lines) {
-        std::cout << "Pref: \"" << whitespacePrefix << "\"" << std::endl;
-        std::cout << "Line: \"" << line << "\"" << std::endl;
         if(whitespacePrefix.size() > line.size()) {
-            std::cout << "size > " << std::endl;
             isIndented = false;
             break;
         }
@@ -2087,32 +2103,26 @@ inline bool Parser::unindentHeredoc(const std::string& heredoc, std::string& out
             continue;
         }
 
-        std::cout << "whitespacePrefix failure " << std::endl;
         isIndented = false;
         break;
     }
 
     if (!isIndented) {
-        std::cout << "NOT indented" << std::endl;
         out = trimRight(heredoc.substr(contentBegin, contentEnd));
         return true;
     }
 
     std::vector<std::string> unindentedLines;
     for (auto line = lines.begin(); line < lines.end(); line++) {
-        std::cout << "Pref: \"" << whitespacePrefix << "\"" << std::endl;
-        std::cout << "LINE: \"" << *line << "\"" << std::endl;
         if (line + 1 == lines.end()) {
             unindentedLines.push_back(std::string());
             break;
         }
         trimPrefix(*line, whitespacePrefix);
-        std::cout << "NEWLINE: \"" << *line << "\"" << std::endl;
         unindentedLines.push_back(std::move(*line));
     }
 
     out = join(unindentedLines, "\n");
-    std::cout << "UNINDENT \"" << out << "\"" << std::endl;
     return true;
 }
 

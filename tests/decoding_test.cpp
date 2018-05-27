@@ -10,7 +10,6 @@ const std::string fixtureDir = "tests/test-fixtures/decoding";
 
 template <typename Map>
 bool map_compare (Map const &lhs, Map const &rhs) {
-    // No predicate needed because there is operator== for pairs already.
     return lhs.size() == rhs.size()
         && std::equal(lhs.begin(), lhs.end(),
                       rhs.begin());
@@ -217,11 +216,6 @@ TEST_CASE("decode valid structures")
             hcl::Value actual = parseFile(filename);
             hcl::Value expected = pair.second;
             REQUIRE(actual.valid());
-            std::cout << " ===== Expected ===== " << std::endl;
-            std::cout << expected << std::endl;
-            std::cout << " =====  Actual  ===== " << std::endl;
-            std::cout << actual << std::endl;
-            std::cout << " ==================== " << std::endl;
             REQUIRE(map_compare(expected.as<hcl::Object>(), actual.as<hcl::Object>()));
         }
     }
@@ -235,4 +229,77 @@ TEST_CASE("fail decoding invalid structures")
             REQUIRE(parseFileFails(filename));
         }
     }
+}
+
+TEST_CASE("decode flat map")
+{
+    const std::string filename = "structure_flatmap.hcl";
+    hcl::Value actual = parseFile(filename);
+    hcl::Value expected = hcl::Value(hcl::Object{
+            {"foo", hcl::Object{
+                    {"foo", "bar"},
+                    {"key", 7},
+                }}
+        });
+    REQUIRE(actual.valid());
+    REQUIRE(map_compare(expected.as<hcl::Object>(), actual.as<hcl::Object>()));
+}
+
+TEST_CASE("decode flat structure")
+{
+    const std::string filename = "flat.hcl";
+    hcl::Value value = parseFile(filename);
+    REQUIRE(value.valid());
+
+    REQUIRE("bar" == value["foo"].as<std::string>());
+    REQUIRE(7 == value["Key"].as<int>());
+    REQUIRE_THROWS(value["Key"].as<std::string>());
+    REQUIRE_THROWS(value["Key"].as<double>());
+    REQUIRE_THROWS(value["foo"].as<bool>());
+}
+
+TEST_CASE("decode array structure")
+{
+    const std::string filename = "decode_policy.hcl";
+    hcl::Value value = parseFile(filename);
+    REQUIRE(value.valid());
+
+    REQUIRE("read" == value["key"][""]["policy"].as<std::string>());
+    REQUIRE("write" == value["key"]["foo/"]["policy"].as<std::string>());
+    REQUIRE("read" == value["key"]["foo/bar/"]["policy"].as<std::string>());
+    REQUIRE("deny" == value["key"]["foo/bar/baz"]["policy"].as<std::string>());
+}
+
+TEST_CASE("decode slice structure")
+{
+    const std::string filename = "slice_expand.hcl";
+    hcl::Value value = parseFile(filename);
+    REQUIRE(value.valid());
+
+    REQUIRE("value" == value["service"]["my-service-0"]["key"].as<std::string>());
+    REQUIRE("value" == value["service"]["my-service-1"]["key"].as<std::string>());
+}
+
+
+TEST_CASE("decode map structure")
+{
+    const std::string filename = "decode_tf_variable.hcl";
+    hcl::Value value = parseFile(filename);
+    REQUIRE(value.valid());
+
+    REQUIRE("bar" == value["variable"]["foo"]["default"].as<std::string>());
+    REQUIRE("bar" == value["variable"]["foo"]["description"].as<std::string>());
+    REQUIRE("foo" == value["variable"]["amis"]["default"]["east"].as<std::string>());
+}
+
+TEST_CASE("decode top level keys")
+{
+    const std::string filename = "top_level_keys.hcl";
+    hcl::Value value = parseFile(filename);
+    REQUIRE(value.valid());
+
+    std::cout << value << std::endl;
+
+    REQUIRE("blah" == value["template"][0]["source"].as<std::string>());
+    REQUIRE("blahblah" == value["template"][1]["source"].as<std::string>());
 }

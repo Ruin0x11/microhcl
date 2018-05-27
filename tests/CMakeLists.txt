@@ -40,7 +40,8 @@ include_directories(../include)
 set(TEST_SOURCES
   decoding_test.cpp
   lexer_test.cpp
-  parser_test.cpp)
+  parser_test.cpp
+  value_test.cpp)
 
 add_executable(test_runner ${TEST_SOURCES} main.cpp)
 target_link_libraries(test_runner Catch)

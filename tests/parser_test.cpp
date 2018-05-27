@@ -8,6 +8,13 @@
 
 const std::string fixtureDir = "tests/test-fixtures/parser";
 
+template <typename Map>
+bool map_compare (Map const &lhs, Map const &rhs) {
+    return lhs.size() == rhs.size()
+        && std::equal(lhs.begin(), lhs.end(),
+                      rhs.begin());
+}
+
 static hcl::Value parse(const std::string& s)
 {
     std::stringstream ss(s);
@@ -19,9 +26,6 @@ static hcl::Value parse(const std::string& s)
         std::cerr << p.errorReason() << std::endl;
     }
     REQUIRE(v.valid());
-    std::cout << "-----" << std::endl;
-    std::cout << v << std::endl;
-    std::cout << "-----" << std::endl;
     return v;
 }
 
@@ -111,6 +115,14 @@ TEST_CASE("parse float")
     REQUIRE(-0.524 == v.get<double>("w"));
 }
 
+TEST_CASE("parse empty double quoted string")
+{
+    hcl::Value v = parse(
+        "x = \"\"\n");
+
+    REQUIRE("" == v.get<std::string>("x"));
+}
+
 TEST_CASE("parse double quoted string")
 {
     hcl::Value v = parse(
@@ -150,6 +162,13 @@ TEST_CASE("parse indented heredoc with hanging indent")
     REQUIRE("    Hello\n  World\n" == v.get<std::string>("hoge"));
 }
 
+TEST_CASE("parse empty single quoted string")
+{
+    hcl::Value v = parse(
+        "x = ''\n");
+    REQUIRE("" == v.get<std::string>("x"));
+}
+
 TEST_CASE("parse single quoted string")
 {
     hcl::Value v = parse(
@@ -163,7 +182,7 @@ TEST_CASE("parse list")
     hcl::Value v = parse(
         "x = [1, 2, 3]\n"
         "y = []\n"
-        "z = [\"\", \"\", ]"
+        "z = [\"\", \"\", ]\n"
         "w = [1, \"string\", <<EOF\nheredoc contents\nEOF]");
 
     const hcl::Value& x = v.get<hcl::List>("x");
@@ -462,35 +481,6 @@ foo "bar" { hoge = "piyo" }
     const hcl::Value& b = foo.get<hcl::Object>(1);
     const hcl::Value& bar = b.get<hcl::Object>("bar");
     REQUIRE("piyo" == bar.get<std::string>("hoge"));
-}
-
-TEST_CASE("parse merging of object lists")
-{
-    hcl::Value a = parse(R"(
-chara putit { name = "putit" }
-chara yeek  { name = "yeek"  }
-)");
-    hcl::Value b = parse(R"(
-chara snail { name = "snail" }
-chara shade { name = "shade" }
-)");
-
-    a.merge(b);
-    REQUIRE(0);
-}
-
-TEST_CASE("parse merging of object list and single object")
-{
-    hcl::Value a = parse(R"(
-chara putit { name = "putit" }
-)");
-    hcl::Value b = parse(R"(
-chara  { name = "putit" }
-chara yeek  { name = "yeek"  }
-)");
-
-    a.merge(b);
-    REQUIRE(0);
 }
 
 TEST_CASE("parse comment group")
