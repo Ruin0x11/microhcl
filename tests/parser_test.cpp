@@ -6,6 +6,8 @@
 #include <sstream>
 #include <string>
 
+const std::string fixtureDir = "tests/test-fixtures/parser";
+
 static hcl::Value parse(const std::string& s)
 {
     std::stringstream ss(s);
@@ -25,9 +27,8 @@ static hcl::Value parse(const std::string& s)
 
 static bool parseFile(const std::string& filename)
 {
-    const std::string fixtureDir = "./test-fixtures/parser";
-
     std::ifstream is(fixtureDir + "/" + filename);
+    REQUIRE(is);
     hcl::internal::Parser p(is);
 
     hcl::Value v = p.parse();
@@ -40,6 +41,16 @@ static bool parseFails(const std::string& s)
 {
     std::stringstream ss(s);
     hcl::internal::Parser p(ss);
+
+    hcl::Value v = p.parse();
+    return !v.valid();
+}
+
+static bool parseFileFails(const std::string& filename)
+{
+    std::ifstream is(fixtureDir + "/" + filename);
+    REQUIRE(is);
+    hcl::internal::Parser p(is);
 
     hcl::Value v = p.parse();
     return !v.valid();
@@ -439,7 +450,7 @@ foo "bar" baz { "hoge" = fuge }
     REQUIRE("fugera" == bazB.get<std::string>("hogera"));
 }
 
-TEST_CASE("parsing nested assignment with-object")
+TEST_CASE("parsing nested assignment with object")
 {
     hcl::Value v = parse(R"(
 foo = 6
@@ -588,8 +599,8 @@ TEST_CASE("parse official HCL tests")
         const std::string filename = pair.first;
         SECTION(filename)
         {
-            bool shouldSucceed = pair.second;
-            REQUIRE(parseFile(filename) == shouldSucceed);
+            bool shouldFail = pair.second;
+            REQUIRE(parseFileFails(filename) == shouldFail);
         }
     }
 }

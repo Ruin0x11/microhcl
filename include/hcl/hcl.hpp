@@ -21,7 +21,7 @@ namespace hcl {
 class Value;
 typedef std::vector<Value> List;
 
-#ifdef MICROHCP_USE_MAP
+#ifdef MICROHCL_USE_MAP
 typedef std::map<std::string, Value> Object;
 #else
 typedef std::unordered_map<std::string, Value> Object;

@@ -42,3 +42,4 @@ endfunction()
 
 add_hcl_test(lexer)
 add_hcl_test(parser)
+add_hcl_test(decoding)
