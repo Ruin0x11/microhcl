@@ -664,17 +664,14 @@ TEST_CASE("test merge objects")
     SECTION("add list to list")
     {
         hcl::Value v = hcl::Value(hcl::Object{
-                {"foo", hcl::List{
-                        hcl::List{"bar", "baz"}
-                    }}
+                {"foo", hcl::List{"bar", "baz"}}
             });
         hcl::Value m = hcl::List{"hoge", "fuga"};
         v.mergeObjects({"foo"}, m);
 
         const hcl::Value expected = hcl::Value(hcl::Object{
                 {"foo", hcl::List{
-                        hcl::List{"bar", "baz"},
-                        hcl::List{"hoge", "fuga"}
+                        {"bar", "baz", hcl::List{"hoge", "fuga"}},
                     }}
             });
 
