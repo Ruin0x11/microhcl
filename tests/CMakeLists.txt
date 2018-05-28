@@ -18,10 +18,16 @@ if(${CMAKE_VERSION} VERSION_LESS 2.8.12)
     endfunction()
 endif()
 
+if(WIN32)
+  set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT test_runner)
+endif(WIN32)
+
 if(MSVC)
+    add_definitions("-D_UNICODE")
+    set(CMAKE_CXX_FLAGS "/W4 /source-charset:utf-8 /MT /EHsc")
     add_compile_options("/MT$<$<CONFIG:Debug>:d>")
 else()
-    add_compile_options("-Wall" "-Wextra" "-std=c++11")
+    add_compile_options("-Wall" "-Wextra")
 endif()
 
 add_definitions(-DSRC_DIR="${CMAKE_SOURCE_DIR}")

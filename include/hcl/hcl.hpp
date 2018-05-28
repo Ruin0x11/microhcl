@@ -757,7 +757,7 @@ inline Token Lexer::nextHereDoc()
         next();
     }
 
-    while (current(&c) && (isalpha(c) || isdigit(c))) {
+    while (current(&c) && (isalpha(static_cast<unsigned char>(c)) || isdigit(static_cast<unsigned char>(c)))) {
         anchor += c;
         next();
     }
@@ -824,7 +824,7 @@ inline Token Lexer::nextHereDoc()
 }
 
 inline bool isValidIdentChar(char c) {
-    return isalpha(c) || isdigit(c) || c == '_' || c == '-' || c == '.' || c == ':' || c == '/';
+    return isalpha(static_cast<unsigned char>(c)) || isdigit(static_cast<unsigned char>(c)) || c == '_' || c == '-' || c == '.' || c == ':' || c == '/';
 }
 
 inline Token Lexer::nextValueToken()
@@ -832,7 +832,7 @@ inline Token Lexer::nextValueToken()
     std::string s;
     char c;
 
-    if (current(&c) && (isalpha(c) || c == '_')) {
+    if (current(&c) && (isalpha(static_cast<unsigned char>(c)) || c == '_')) {
         s += c;
         next();
 
@@ -918,7 +918,7 @@ inline Token Lexer::nextToken()
             return Token(TokenType::ADD, "+");
         case '-':
             next();
-            if (current(&c) && isdigit(c)) {
+            if (current(&c) && isdigit(static_cast<unsigned char>(c))) {
                 return nextNumber(false, true);
             }
             else {
@@ -941,7 +941,7 @@ inline Token Lexer::nextToken()
             return Token(TokenType::COMMA, ",");
         case '.':
             next();
-            if(current(&c) && isdigit(c)) {
+            if(current(&c) && isdigit(static_cast<unsigned char>(c))) {
                 return nextNumber(true, false);
             }
             else {
@@ -1267,7 +1267,7 @@ inline std::string Value::spaces(int num)
 inline std::string Value::escapeKey(const std::string& key)
 {
     auto position = std::find_if(key.begin(), key.end(), [](char c) -> bool {
-        if (std::isalnum(c) || c == '_' || c == '-')
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-')
             return false;
         return true;
     });
