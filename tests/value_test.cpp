@@ -738,10 +738,13 @@ chara yeek  { name = "yeek"  }
 
 TEST_CASE("fail indexing non-list by index")
 {
-
+    hcl::Value v = 1;
+    REQUIRE_THROWS(v[0]);
 }
 
 TEST_CASE("fail indexing non-object by string")
 {
-
+    hcl::Value v = 1;
+    REQUIRE_THROWS(v["foo"]);
 }
+

@@ -1322,27 +1322,33 @@ inline void Value::write(std::ostream* os, const std::string& keyPrefix, int ind
             if (kv.second.is<List>() && kv.second.size() > 0 && kv.second.find(0)->is<Object>())
                 continue;
             (*os) << spaces(indent) << escapeKey(kv.first) << " = ";
-            kv.second.write(os, keyPrefix, indent >= 0 ? indent + 1 : indent);
+            kv.second.write(os, keyPrefix, indent + 4);
             (*os) << '\n';
         }
         for (const auto& kv : *object_) {
             if (kv.second.is<Object>()) {
-                std::string key(keyPrefix);
-                if (!keyPrefix.empty())
-                    key += ".";
+                std::string key;
+
                 key += escapeKey(kv.first);
-                (*os) << "\n" << spaces(indent) << "[" << key << "]\n";
-                kv.second.write(os, key, indent >= 0 ? indent + 1 : indent);
+                (*os) << spaces(indent) << key << " {\n";
+                kv.second.write(os, key, indent + 4);
+                (*os) << spaces(indent) << "}\n";
             }
             if (kv.second.is<List>() && kv.second.size() > 0 && kv.second.find(0)->is<Object>()) {
-                std::string key(keyPrefix);
-                if (!keyPrefix.empty())
-                    key += ".";
+                std::string key;
+
                 key += escapeKey(kv.first);
+                (*os) << spaces(indent) << key << " = [";
                 for (const auto& v : kv.second.as<List>()) {
-                    (*os) << "\n" << spaces(indent) << "[[" << key << "]]\n";
-                    v.write(os, key, indent >= 0 ? indent + 1 : indent);
+                    if(v.is<Object>())
+                        (*os) << "\n" << spaces(indent + 4) << "{";
+                    else
+                        (*os) << spaces(indent);
+                    v.write(os, key, indent + 4);
+                    if(v.is<Object>())
+                        (*os) << "},\n";
                 }
+                (*os) << spaces(indent) << "]\n";
             }
         }
         break;
@@ -1716,7 +1722,8 @@ inline Value* Value::ensureValue(const std::string& key)
 
 inline Value* Value::findChild(const std::string& key)
 {
-    assert(is<Object>());
+    if(!is<Object>())
+        failwith("cannot use findChild on non-object");
 
     auto it = object_->find(key);
     if (it == object_->end())
@@ -1727,7 +1734,8 @@ inline Value* Value::findChild(const std::string& key)
 
 inline const Value* Value::findChild(const std::string& key) const
 {
-    assert(is<Object>());
+    if(!is<Object>())
+        failwith("cannot use findChild on non-object");
 
     auto it = object_->find(key);
     if (it == object_->end())
