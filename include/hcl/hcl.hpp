@@ -59,8 +59,16 @@ public:
         INT_TYPE,
         DOUBLE_TYPE,
         STRING_TYPE,
+        IDENT_TYPE,
+        HIL_TYPE,
         LIST_TYPE,
         OBJECT_TYPE,
+    };
+
+    enum StringType {
+        Normal,
+        Ident,
+        Hil,
     };
 
     Value() : type_(NULL_TYPE), null_(nullptr) {}
@@ -110,6 +118,15 @@ public:
     // Returns true if the value is int or double.
     bool isNumber() const;
     double asNumber() const;
+
+    // ----------------------------------------------------------------------
+    // For String value
+
+    StringType getStringType() const;
+    void setStringType(StringType);
+    bool isString() const;
+    bool isIdent() const;
+    bool isHil() const;
 
     // ----------------------------------------------------------------------
     // For Object value
@@ -220,6 +237,7 @@ enum class TokenType {
     FLOAT,   // 123.45
     BOOL,    // true,false
     STRING,  // "abc"
+    HIL,     // "${foo(bar)}"
     HEREDOC, // <<FOO\nbar\nFOO
 
     LBRACK, // [
@@ -630,11 +648,13 @@ inline Token Lexer::nextStringDoubleQuote()
     char c;
     int braces = 0;
     bool dollar = false;
+    bool hil = false;
 
     while (current(&c)) {
         next();
         if (braces == 0 && dollar && c == '{') {
             braces++;
+            hil = true;
         } else if (braces > 0 && c == '{') {
             braces++;
         }
@@ -694,7 +714,10 @@ inline Token Lexer::nextStringDoubleQuote()
         } else if (c == '\n' && braces == 0) {
             return Token(TokenType::ILLEGAL, std::string("found newline while parsing non-HIL string literal"));
         } else if (c == '"' && braces == 0) {
-            return Token(TokenType::STRING, s);
+            if (hil)
+                return Token(TokenType::HIL, s);
+            else
+                return Token(TokenType::STRING, s);
         }
 
         s += c;
@@ -978,7 +1001,10 @@ inline const char* Value::typeToString(Value::Type type)
     case BOOL_TYPE:   return "bool";
     case INT_TYPE:    return "int";
     case DOUBLE_TYPE: return "double";
-    case STRING_TYPE: return "string";
+    case STRING_TYPE:
+    case IDENT_TYPE:
+    case HIL_TYPE:
+        return "string";
     case LIST_TYPE:  return "list";
     case OBJECT_TYPE:  return "object";
     default:          return "unknown";
@@ -993,7 +1019,11 @@ inline Value::Value(const Value& v) :
     case BOOL_TYPE: bool_ = v.bool_; break;
     case INT_TYPE: int_ = v.int_; break;
     case DOUBLE_TYPE: double_ = v.double_; break;
-    case STRING_TYPE: string_ = new std::string(*v.string_); break;
+    case STRING_TYPE:
+    case IDENT_TYPE:
+    case HIL_TYPE:
+        string_ = new std::string(*v.string_);
+        break;
     case LIST_TYPE: list_ = new List(*v.list_); break;
     case OBJECT_TYPE: object_ = new Object(*v.object_); break;
     default:
@@ -1011,7 +1041,11 @@ inline Value::Value(Value&& v) noexcept :
     case BOOL_TYPE: bool_ = v.bool_; break;
     case INT_TYPE: int_ = v.int_; break;
     case DOUBLE_TYPE: double_ = v.double_; break;
-    case STRING_TYPE: string_ = v.string_; break;
+    case STRING_TYPE:
+    case IDENT_TYPE:
+    case HIL_TYPE:
+        string_ = v.string_;
+        break;
     case LIST_TYPE: list_ = v.list_; break;
     case OBJECT_TYPE: object_ = v.object_; break;
     default:
@@ -1037,7 +1071,11 @@ inline Value& Value::operator=(const Value& v)
     case BOOL_TYPE: bool_ = v.bool_; break;
     case INT_TYPE: int_ = v.int_; break;
     case DOUBLE_TYPE: double_ = v.double_; break;
-    case STRING_TYPE: string_ = new std::string(*v.string_); break;
+    case STRING_TYPE:
+    case IDENT_TYPE:
+    case HIL_TYPE:
+        string_ = new std::string(*v.string_);
+        break;
     case LIST_TYPE: list_ = new List(*v.list_); break;
     case OBJECT_TYPE: object_ = new Object(*v.object_); break;
     default:
@@ -1062,7 +1100,11 @@ inline Value& Value::operator=(Value&& v) noexcept
     case BOOL_TYPE: bool_ = v.bool_; break;
     case INT_TYPE: int_ = v.int_; break;
     case DOUBLE_TYPE: double_ = v.double_; break;
-    case STRING_TYPE: string_ = v.string_; break;
+    case STRING_TYPE:
+    case IDENT_TYPE:
+    case HIL_TYPE:
+        string_ = v.string_;
+        break;
     case LIST_TYPE: list_ = v.list_; break;
     case OBJECT_TYPE: object_ = v.object_; break;
     default:
@@ -1080,6 +1122,8 @@ inline Value::~Value()
 {
     switch (type_) {
     case STRING_TYPE:
+    case IDENT_TYPE:
+    case HIL_TYPE:
         delete string_;
         break;
     case LIST_TYPE:
@@ -1135,7 +1179,7 @@ template<> struct Value::ValueConverter<double>
 };
 template<> struct Value::ValueConverter<std::string>
 {
-    bool is(const Value& v) { return v.type() == Value::STRING_TYPE; }
+    bool is(const Value& v) { return v.isString(); }
     const std::string& to(const Value& v) { v.assureType<std::string>(); return *v.string_; }
 };
 template<> struct Value::ValueConverter<List>
@@ -1223,11 +1267,67 @@ inline double Value::asNumber() const
     failwith("type error: this value is ", typeToString(type_), " but number is requested");
 }
 
+inline Value::StringType Value::getStringType() const
+{
+    if (!is<std::string>())
+        failwith("type must be string to use setStringType(type).");
+
+    switch (type_) {
+    case STRING_TYPE:
+        return StringType::Normal;
+    case IDENT_TYPE:
+        return StringType::Ident;
+    case HIL_TYPE:
+        return StringType::Hil;
+    default:
+        assert(0);
+        return StringType::Normal;
+    }
+}
+
+inline void Value::setStringType(StringType type)
+{
+    if (!is<std::string>())
+        failwith("type must be string to use setStringType(type).");
+
+    switch (type) {
+    case StringType::Normal:
+        type_ = STRING_TYPE;
+        break;
+    case StringType::Ident:
+        type_ = IDENT_TYPE;
+        break;
+    case StringType::Hil:
+        type_ = HIL_TYPE;
+        break;
+    default:
+        assert(0);
+    }
+}
+
+inline bool Value::isString() const
+{
+    return type_ == STRING_TYPE || type_ == IDENT_TYPE || type_ == HIL_TYPE;
+}
+
+inline bool Value::isIdent() const
+{
+    return getStringType() == StringType::Ident;
+}
+
+inline bool Value::isHil() const
+{
+    return getStringType() == StringType::Hil;
+}
+
 // static
 inline bool operator==(const Value& lhs, const Value& rhs)
 {
-    if (lhs.type() != rhs.type())
-        return false;
+    if (lhs.type() != rhs.type()) {
+        if (!lhs.isString() && !rhs.isString()) {
+            return false;
+        }
+    }
 
     switch (lhs.type()) {
     case Value::Type::NULL_TYPE:
@@ -1239,6 +1339,8 @@ inline bool operator==(const Value& lhs, const Value& rhs)
     case Value::Type::DOUBLE_TYPE:
         return lhs.double_ == rhs.double_;
     case Value::Type::STRING_TYPE:
+    case Value::Type::IDENT_TYPE:
+    case Value::Type::HIL_TYPE:
         return *lhs.string_ == *rhs.string_;
     case Value::Type::LIST_TYPE:
         return *lhs.list_ == *rhs.list_;
@@ -1304,7 +1406,11 @@ inline void Value::write(std::ostream* os, const std::string& keyPrefix, int ind
         break;
     }
     case STRING_TYPE:
+    case HIL_TYPE:
         (*os) << '"' << internal::escapeString(*string_) << '"';
+        break;
+    case IDENT_TYPE:
+        (*os) << internal::escapeString(*string_);
         break;
     case LIST_TYPE:
         (*os) << '[';
@@ -1752,7 +1858,7 @@ namespace internal {
 inline void Parser::addError(const std::string& reason)
 {
     std::stringstream ss;
-    ss << "Error: line " << lexer_.lineNo() << ": " << reason << "\n";
+    ss << "Error:" << lexer_.lineNo() << ":" << lexer_.columnNo() << ": " << reason << "\n";
     errorReason_ += ss.str();
 }
 
@@ -1883,6 +1989,7 @@ inline bool Parser::parseObject(Value& currentValue)
     case TokenType::STRING:
     case TokenType::HEREDOC:
     case TokenType::IDENT:
+    case TokenType::HIL:
         return parseLiteralType(currentValue);
     case TokenType::LBRACE:
         return parseObjectType(currentValue);
@@ -1950,6 +2057,7 @@ inline bool Parser::parseListType(Value& currentValue)
         case TokenType::STRING:
         case TokenType::HEREDOC:
         case TokenType::IDENT:
+        case TokenType::HIL:
         {
             Value literal;
             if (!parseLiteralType(literal)) {
@@ -2012,7 +2120,14 @@ inline bool Parser::parseLiteralType(Value& currentValue)
     }
     case TokenType::STRING:
     case TokenType::IDENT:
+    case TokenType::HIL:
         currentValue = token().strValue();
+
+        if (token().type() == TokenType::HIL)
+            currentValue.setStringType(Value::StringType::Hil);
+        else if (token().type() == TokenType::IDENT)
+            currentValue.setStringType(Value::StringType::Ident);
+
         return true;
     case TokenType::BOOL:
         currentValue = token().boolValue();

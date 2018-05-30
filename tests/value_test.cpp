@@ -747,4 +747,3 @@ TEST_CASE("fail indexing non-object by string")
     hcl::Value v = 1;
     REQUIRE_THROWS(v["foo"]);
 }
-

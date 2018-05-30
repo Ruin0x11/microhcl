@@ -135,6 +135,45 @@ TEST_CASE("parse double quoted string")
     REQUIRE("??" == v.get<std::string>("z"));
 }
 
+TEST_CASE("parse ident")
+{
+    hcl::Value v = parse(
+        "x = hoge\n"
+        "y = hoge.fuga\n"
+        "z = _000.hoge::fuga-piyo");
+
+    REQUIRE("hoge" == v.get<std::string>("x"));
+    REQUIRE("hoge.fuga" == v.get<std::string>("y"));
+    REQUIRE("_000.hoge::fuga-piyo" == v.get<std::string>("z"));
+
+    REQUIRE(v["x"].isIdent());
+    REQUIRE(v["y"].isIdent());
+    REQUIRE(v["z"].isIdent());
+}
+
+TEST_CASE("parse HIL")
+{
+    hcl::Value v = parse(
+        "x = \"${hoge}\"\n"
+        "y = \"${hoge {\\\"fuga\\\"} hoge}\"\n"
+        "z = \"${name(hoge)}\"");
+
+    REQUIRE("${hoge}" == v.get<std::string>("x"));
+    REQUIRE("${hoge {\"fuga\"} hoge}" == v.get<std::string>("y"));
+    REQUIRE("${name(hoge)}" == v.get<std::string>("z"));
+
+    REQUIRE(v["x"].isHil());
+    REQUIRE(v["y"].isHil());
+    REQUIRE(v["z"].isHil());
+}
+
+TEST_CASE("fail parsing invalid HIL")
+{
+    REQUIRE(parseFails("x = ${hoge}"));
+    REQUIRE(parseFails("x = \"${{hoge}\""));
+    REQUIRE(parseFails("x = \"${{hoge}\"\n"));
+}
+
 TEST_CASE("parse heredoc")
 {
     hcl::Value v = parse(
@@ -206,7 +245,7 @@ TEST_CASE("parse list")
     REQUIRE("heredoc contents\n" == w.get<std::string>(2));
 }
 
-TEST_CASE("parse invalid list")
+TEST_CASE("fail parsing invalid list")
 {
     REQUIRE(parseFails("w = 1, \"string\", <<EOF\nheredoc contents\nEOF"));
 }
