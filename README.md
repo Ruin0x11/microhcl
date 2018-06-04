@@ -11,7 +11,7 @@ std::ifstream ifs("foo.hcl");
 hcl::ParseResult parseResult = hcl::parse(ifs);
 
 if (!parseResult.valid()) {
-    std::cout << pr.errorReason << std::endl;
+    std::cout << parseResult.errorReason << std::endl;
     return;
 }
 
