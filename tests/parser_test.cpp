@@ -135,6 +135,14 @@ TEST_CASE("parse double quoted string")
     REQUIRE("??" == v.get<std::string>("z"));
 }
 
+TEST_CASE("parse halfwidth katakana string")
+{
+    hcl::Value v = parse(
+        "x = \"ｴｰﾃﾙ病\"");
+
+    REQUIRE("ｴｰﾃﾙ病" == v.get<std::string>("x"));
+}
+
 TEST_CASE("parse ident")
 {
     hcl::Value v = parse(

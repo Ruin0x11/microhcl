@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 
+using namespace std::literals::string_literals;
 const std::string fixtureDir = "tests/test-fixtures/decoding";
 
 template <typename Map>
@@ -192,7 +193,45 @@ std::map<std::string, hcl::Value> cases = {
                                  }}
                          }
                  }}
-         })}
+         })},
+    {"multiple_resources.hcl",
+     hcl::Value(hcl::Object{
+             {"resource", hcl::Object{
+                     {"aws_db_instance", hcl::Object{
+                             {"mysqldb", hcl::Object{
+                                     {"allocated_storage", 100},
+                                     {"identifier", "${var.environment}-mysqldb"}
+                                 }},
+                             {"mysqldb-readonly", hcl::Object{
+                                     {"allocated_storage", 100},
+                                     {"identifier", "${var.environment}-mysqldb-readonly"}
+                                 }}
+                         }}
+                 }}
+         })},
+    {"merge_objects.hcl",
+     hcl::Value(hcl::Object{
+             {"bar", hcl::List{
+                     hcl::Object{{"a", "alpha"}, {"b", "bravo"}},
+                     hcl::Object{{"a", "alpha"}, {"b", "bravo"}}
+                 }}
+         })},
+    {"merge_objects2.hcl",
+     hcl::Value(hcl::Object{
+             {"bar", hcl::List{
+                     hcl::Object{{"a", "alpha"}, {"b", "bravo"}, {"c", "charlie"},
+                                 {"x", "x-ray"}, {"y", "yankee"}, {"z", "zulu"}}
+                 }}
+         })},
+    {"structure_list2.hcl",
+     hcl::Value(hcl::Object{
+             {"top", hcl::List{
+                     hcl::Object{{"a", "a"}, {"b", "b"}},
+                     hcl::Object{{"b", "b"}, {"c", "c"}}
+                 }}
+         })},
+    {"tab_heredoc.hcl",
+     hcl::Value(hcl::Object{{"foo", "bar\nbaz\n"}})}
 };
 
 std::vector<std::string> invalidCases = {
@@ -300,4 +339,13 @@ TEST_CASE("decode top level keys")
 
     REQUIRE("blah" == value["template"][0]["source"].as<std::string>());
     REQUIRE("blahblah" == value["template"][1]["source"].as<std::string>());
+}
+
+TEST_CASE("decode halfwidth katakana")
+{
+    const std::string filename = "halfwidth_katakana.hcl";
+    hcl::Value value = parseFile(filename);
+    REQUIRE(value.valid());
+
+    REQUIRE(u8"ｴｰﾃﾙ病"s == value["ether_disease"].as<std::string>());
 }

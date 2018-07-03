@@ -1561,13 +1561,24 @@ inline bool Value::mergeObjects(const std::vector<std::string>& keys, Value& add
 
     Value& nestedValue = added;
     if (keys.size() > 1) {
+        // Create a nested object using the list of keys passed in,
+        // then try to merge it with whatever is at
+        // this[keys.front()].
         Value parent((Object()));
         Value* ptr = &parent;
+
+        // Skip the first key, because the value it has will be merged
+        // below by looking up an object in this Value with it.
         std::vector<std::string> allButFirst(keys.begin() + 1, keys.end());
+
         for (auto key = allButFirst.begin(); key < allButFirst.end(); key++) {
             if ((key != allButFirst.end()) && (key + 1 == allButFirst.end())) {
+                // This is the last key in the list. At the end of the
+                // key list, the value that was passed in should be
+                // set.
                 ptr->set(*key, nestedValue);
             } else {
+                // Set the next level of the new nested table.
                 ptr = ptr->set(*key, Object());
             }
         }
